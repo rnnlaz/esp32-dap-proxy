@@ -8,14 +8,14 @@
 #![deny(clippy::large_stack_frames)]
 
 use esp_hal::{
-    clock::CpuClock, delay::Delay, gpio::*, main, time::{Duration, Instant},
+    clock::CpuClock, gpio::*, main, time::{Duration, Instant},
 };
+
+use esp_println::println;
 
 mod swd;
 use swd::SwdIo;
-
-use esp_println::println;
-// use esp_println::println;
+use swd::SwdProtocol;
 
 #[panic_handler]
 fn panic(_: &core::panic::PanicInfo) -> ! {
@@ -43,12 +43,17 @@ fn main() -> ! {
     let swclk = Output::new(peripherals.GPIO18, Level::Low, OutputConfig::default());
     let swdio = Flex::new(peripherals.GPIO19);
 
-    let mut swd_io = SwdIo::new(swclk, swdio);
+    let swd_io = SwdIo::new(swclk, swdio);
+    let mut swd = SwdProtocol::new(swd_io);
     
     loop {
-        match swd_io.read_dpidr() {
-            Ok(dpidr) => println!("DPIDR: 0x{:08X}", dpidr),
-            Err(e) => println!("Error reading DPIDR: {}", e),
+        match swd.read_dpidr() {
+            Ok(dpidr) => {
+                println!("DPIDR: {:#010X}", dpidr);
+            }
+            Err(e) => {
+                println!("Error reading DPIDR: {:?}", e);
+            }
         }
 
         let start = Instant::now();

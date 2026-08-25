@@ -50,6 +50,13 @@ impl<'a> SwdIo<'a> {
         self.swdio.set_output_enable(false);
     }
 
+    pub fn line_reset(&mut self) {
+        self.swdio.set_high();
+        for _ in 0..60 {
+            self.clock_cycle();
+        }
+    }
+
     #[inline(always)]
     pub fn write_bit(&mut self, bit: bool) {
         self.swdio.set_level(if bit { Level::High } else { Level::Low });
