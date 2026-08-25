@@ -1,0 +1,32 @@
+[package]
+edition      = "2024"
+name         = "my-esp-debugger"
+rust-version = "1.88"
+version      = "0.1.0"
+
+[[bin]]
+name = "my-esp-debugger"
+path = "./src/main.rs"
+
+[dependencies]
+esp-hal = { version = "~1.1.0", features = ["esp32c3", "unstable"] }
+
+
+esp-bootloader-esp-idf = { version = "0.5.0", features = ["esp32c3"] }
+
+critical-section = "1.2.0"
+esp-println = { version = "0.17.0", features = ["esp32c3"] }
+embedded-hal = "1.0.0"
+
+
+# For fine tuning these settings, please refer to https://doc.rust-lang.org/cargo/reference/profiles.html
+[profile.dev]
+# The default debug profile is too slow and too big for resource-constrained devices.
+# Always build with some optimizations enabled.
+opt-level = "s"
+
+[profile.release]
+codegen-units = 1     # LLVM can perform better optimizations using a single thread
+debug         = 2     # prefer slower builds but better debugging experience
+lto           = 'fat'
+opt-level     = 's'
