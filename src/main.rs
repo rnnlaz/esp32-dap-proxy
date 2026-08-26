@@ -40,17 +40,35 @@ fn main() -> ! {
     let config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
     let peripherals = esp_hal::init(config);
 
-    let swclk = Output::new(peripherals.GPIO18, Level::Low, OutputConfig::default());
-    let swdio = Flex::new(peripherals.GPIO19);
+    let swclk = Output::new(peripherals.GPIO0, Level::Low, OutputConfig::default());
+    let swdio = Flex::new(peripherals.GPIO1);
 
     let swd_io = SwdIo::new(swclk, swdio);
     let mut swd = SwdProtocol::new(swd_io);
+    swd.sync();
     
     loop {
         match swd.read_dpidr() {
             Ok(dpidr) => {
                 println!("DPIDR: {:#010X}", dpidr);
+                match swd.dp_power_up() {
+                    Ok(()) => {
+                        println!("DP power up successful");
+                    }
+                    Err(e) => {
+                        println!("Error powering up DP: {:?}", e);
+                    }
+                }
+                match swd.select_ap_bank(0, 0) {
+                    Ok(()) => {
+                        println!("AP bank selection successful");
+                    }
+                    Err(e) => {
+                        println!("Error selecting AP bank: {:?}", e);
+                    }
+                }
             }
+
             Err(e) => {
                 println!("Error reading DPIDR: {:?}", e);
             }
