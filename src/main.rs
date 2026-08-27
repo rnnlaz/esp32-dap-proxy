@@ -13,7 +13,9 @@ use esp_hal::{
 
 use esp_println::println;
 
-use crate::probe::target::cortex_m::*;
+use crate::probe::target::cortex_m::REG_PC;
+
+
 
 #[panic_handler]
 fn panic(info : &core::panic::PanicInfo) -> ! {
@@ -61,7 +63,7 @@ fn main() -> ! {
     swd_probe.read_bulk(0x0800_0000, &mut buf).expect("bulk read failed");
     println!("First word of flash: 0x{:08X}", buf[0]);
 
-    let mut target = probe::target::cortex_m::CortexM::new(&mut swd_probe);
+    let mut target = probe::target::cortex_m::CortexM::new(&mut swd_probe).expect("Failed to create Cortex-M target");
 
     target.halt().expect("Failed to halt target");
     println!("Target halted.");
@@ -93,6 +95,22 @@ fn main() -> ! {
 
     target.resume().expect("Failed to resume target");
     println!("Target resumed.");
+
+    target.halt().expect("1");
+    let a = target.read_register(REG_PC).expect("2");
+    println!("PC at halt: 0x{:08X}", a);
+
+    target.step().expect("9");
+    let b = target.read_register(REG_PC).expect("3");
+    println!("PC after step: 0x{:08X}", b);
+
+    target.set_breakpoint(a).expect("4");
+    println!("BP at 0x{:08X}", a);
+
+    target.resume().expect("5");
+    target.wait_for_halt().expect("6");
+    let pc = target.read_register(REG_PC).expect("7");
+    println!("Hit BP, PC = 0x{:08X}", pc);   // ≈ a
 
     loop {
         let start = Instant::now();
