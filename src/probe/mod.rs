@@ -75,55 +75,11 @@ impl<T: Transport> Probe<T> {
 
         Ok(())
     }
-}
 
-impl<T: Transport> Probe<T> {
     pub fn clear_sticky(&mut self) -> Result<(), transport::Error> {
         println!("clear_sticky: writing ABORT");
         let ab = self.transport.write_dp(DP_ABORT, 0x1F);
         println!("clear_sticky: ABORT write => {:?}", ab);
         ab
-    }
-
-    pub fn halt(&mut self) -> Result<(), transport::Error> {
-        self.write32(DHCSR, DBGKEY | C_DEBUGEN | C_HALT)?;
-
-        for _ in 0..1000 {
-            match self.read32(DHCSR) {
-                Ok(dhcsr) if dhcsr & S_HALT != 0 => return Ok(()),
-                Ok(_) => {}
-                Err(transport::Error::Fault) => self.clear_sticky()?,
-                Err(e) => return Err(e),
-            }
-        }
-        Err(transport::Error::Io)
-    }
-
-    pub fn resume(&mut self) -> Result<(), transport::Error> {
-        self.write32(DHCSR, DBGKEY | C_DEBUGEN)?;
-
-        for _ in 0..1000 {
-            let dhcsr = self.read32(DHCSR)?;
-            if (dhcsr & S_HALT) == 0 {
-                return Ok(());
-            }
-        }
-        Err(transport::Error::Io)
-    }
-
-    pub fn read_register(&mut self, n: u16) -> Result<u32, transport::Error> {
-        self.write32(DCRSR, n as u32)?;
-        
-        for _ in 0..1000 {
-            match self.read32(DHCSR) {
-                Ok(dhcsr) if dhcsr & S_REGRDY != 0 => {
-                    return self.read32(DCRDR);
-                }
-                Ok(_) => {}
-                Err(transport::Error::Fault) => self.clear_sticky()?,
-                Err(e) => return Err(e),
-            }
-        }
-        self.read32(DCRDR)
     }
 }

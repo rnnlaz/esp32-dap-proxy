@@ -23,7 +23,6 @@ fn panic(info : &core::panic::PanicInfo) -> ! {
 
 mod probe;
 
-
 // This creates a default app-descriptor required by the esp-idf bootloader.
 // For more information see: <https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/app_image_format.html#application-description>
 esp_bootloader_esp_idf::esp_app_desc!();
@@ -62,13 +61,15 @@ fn main() -> ! {
     swd_probe.read_bulk(0x0800_0000, &mut buf).expect("bulk read failed");
     println!("First word of flash: 0x{:08X}", buf[0]);
 
-    swd_probe.halt().expect("halt failed");
-    let pc = swd_probe.read_register(REG_PC).expect("read PC failed");
+    let mut target = probe::target::cortex_m::CortexM::new(&mut swd_probe);
+
+    target.halt().expect("halt failed");
+    let pc = target.read_register(REG_PC).expect("read PC failed");
     println!("Real halted PC = 0x{:08X}", pc);
 
-    let sp = swd_probe.read_register(REG_MSP).expect("read MSP failed");
+    let sp = target.read_register(REG_MSP).expect("read MSP failed");
     println!("MSP = 0x{:08X}", sp);
-    swd_probe.resume().expect("resume failed");
+    target.resume().expect("resume failed");
     println!("Resumed target execution");
 
     loop {
