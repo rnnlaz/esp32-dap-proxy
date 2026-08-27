@@ -90,13 +90,29 @@ impl<'a, T: transport::Transport> CortexM<'a, T> {
         Err(transport::Error::Io)
     }
 
+    pub fn step(&mut self) -> Result<(), transport::Error> {
+        self.probe.write32(DHCSR, DBGKEY | C_DEBUGEN | C_STEP)?;
+
+        for _ in 0..1000 {
+            match self.probe.read32(DHCSR) {
+                Ok(dhcsr) if dhcsr & S_HALT != 0 => return Ok(()),
+                Ok(_) => {}
+                Err(transport::Error::Fault) => self.probe.clear_sticky()?,
+                Err(e) => return Err(e),
+            }
+        }
+        Err(transport::Error::Io)
+    }
+
     pub fn resume(&mut self) -> Result<(), transport::Error> {
         self.probe.write32(DHCSR, DBGKEY | C_DEBUGEN)?;
 
         for _ in 0..1000 {
-            let dhcsr = self.probe.read32(DHCSR)?;
-            if (dhcsr & S_HALT) == 0 {
-                return Ok(());
+            match self.probe.read32(DHCSR) {
+                Ok(dhcsr) if dhcsr & S_HALT == 0 => return Ok(()),
+                Ok(_) => {}
+                Err(transport::Error::Fault) => self.probe.clear_sticky()?,
+                Err(e) => return Err(e),
             }
         }
         Err(transport::Error::Io)
@@ -116,5 +132,39 @@ impl<'a, T: transport::Transport> CortexM<'a, T> {
             }
         }
         self.probe.read32(DCRDR)
+    }
+
+    pub fn write_register(&mut self, n: u16, value: u32) -> Result<(), transport::Error> {
+        self.probe.write32(DCRDR, value)?;
+        self.probe.write32(DCRSR, n as u32 | DCRSR_REGWNR)?;
+
+        for _ in 0..1000 {
+            match self.probe.read32(DHCSR) {
+                Ok(dhcsr) if dhcsr & S_REGRDY != 0 => return Ok(()),
+                Ok(_) => {}
+                Err(transport::Error::Fault) => self.probe.clear_sticky()?,
+                Err(e) => return Err(e),
+            }
+        }
+        Err(transport::Error::Io)
+    }
+
+    pub fn read_core_registers(&mut self) -> Result<[u32; 17], transport::Error> {
+        let mut regs = [0u32; 17];
+        for i in 0..17 {
+            regs[i] = self.read_register(i as u16)?;
+        }
+        Ok(regs)
+    }
+
+    pub fn read_stack_frame(&mut self, sp: u32) -> Result<[u32; 8], transport::Error> {
+        let mut frame = [0u32; 8];
+        self.probe.read_bulk(sp, &mut frame)?;
+        Ok(frame)
+    }
+
+    pub fn read_current_stack_frame(&mut self) -> Result<[u32; 8], transport::Error> {
+        let sp = self.read_register(REG_MSP)?;
+        self.read_stack_frame(sp)
     }
 }

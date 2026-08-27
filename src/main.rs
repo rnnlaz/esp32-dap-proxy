@@ -63,14 +63,36 @@ fn main() -> ! {
 
     let mut target = probe::target::cortex_m::CortexM::new(&mut swd_probe);
 
-    target.halt().expect("halt failed");
-    let pc = target.read_register(REG_PC).expect("read PC failed");
-    println!("Real halted PC = 0x{:08X}", pc);
+    target.halt().expect("Failed to halt target");
+    println!("Target halted.");
 
-    let sp = target.read_register(REG_MSP).expect("read MSP failed");
-    println!("MSP = 0x{:08X}", sp);
-    target.resume().expect("resume failed");
-    println!("Resumed target execution");
+    let pc = target.read_register(REG_PC).expect("Failed to read PC");
+    println!("PC after halt: 0x{:08X}", pc);
+
+    target.step().expect("Failed to step target");
+    println!("Target stepped.");
+
+    let pc1 = target.read_register(REG_PC).expect("Failed to read PC after step");
+    println!("PC after step: 0x{:08X}", pc1);
+
+    target.write_register(REG_PC, pc).expect("Failed to write PC");
+    let pc3 = target.read_register(REG_PC).expect("Failed to read PC after write");
+    println!("PC after write: 0x{:08X}", pc3);
+
+    let regs = target.read_core_registers().expect("Failed to read core registers");
+    for i in 0..regs.len() {
+        println!("R{}: 0x{:08X}", i, regs[i]);
+    }
+    println!("XPSR: 0x{:08X}", regs[16]);
+
+    let frame = target.read_current_stack_frame().expect("Failed to read current stack frame");
+    println!("Current stack frame:");
+    for i in 0..frame.len() {
+        println!("Stack[{}]: 0x{:08X}", i, frame[i]);
+    }
+
+    target.resume().expect("Failed to resume target");
+    println!("Target resumed.");
 
     loop {
         let start = Instant::now();
