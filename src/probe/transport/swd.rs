@@ -1,4 +1,4 @@
-use crate::probe::{io::Io, target::dp::{DP_REG_RDBUFF, DP_REG_SELECT}, transport::{Error, Transport}};
+use crate::probe::{io::Io, target::dp::{DP_RDBUFF, DP_SELECT}, transport::{Error, Transport}};
 
 pub struct Swd<I: Io> {
     io: I,
@@ -91,7 +91,7 @@ impl<I: Io> Swd<I> {
         let bank = (addr >> 4) & 0x0F;
         let select = ((ap_select as u32) << 24) | ((bank as u32) << 4);
         if select != self.select_cache {
-            self.write_dp(DP_REG_SELECT, select)?;
+            self.write_dp(DP_SELECT, select)?;
             self.select_cache = select;
         }
         Ok(())
@@ -103,7 +103,7 @@ impl<I: Io> Swd<I> {
     }
 
     fn read_rdbuff(&mut self) -> Result<u32, Error> {
-        self.read_dp(DP_REG_RDBUFF)
+        self.read_dp(DP_RDBUFF)
     }
 }
 

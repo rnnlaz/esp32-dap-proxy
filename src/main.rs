@@ -13,7 +13,7 @@ use esp_hal::{
 
 use esp_println::println;
 
-use crate::probe::{target::dp::{DP_REG_CTRL_STAT, DP_REG_DPIDR}, transport::Transport};
+
 
 #[panic_handler]
 fn panic(_: &core::panic::PanicInfo) -> ! {
@@ -44,38 +44,23 @@ fn main() -> ! {
     let swdio = Flex::new(peripherals.GPIO1);
 
     let swd_io = probe::io::bitbang::BitBangIo::new(swclk, swdio, None);
-    let mut swd = probe::transport::swd::Swd::new(swd_io);
-    swd.init().expect("Failed to initialize SWD transport");
+    let swd = probe::transport::swd::Swd::new(swd_io);
+    let mut swd_probe = probe::Probe::new(swd);
+
+    let id = swd_probe.connect().expect("Failed to connect to target");
+    println!("Connected to target with ID: 0x{:08X}", id);
+
+    let sp = swd_probe.read32(0x0000_0000).expect("read SP failed");
+    println!("SP: 0x{:08X}", sp);
+
+    let pc = swd_probe.read32(0x0000_0004).expect("read PC failed");
+    println!("PC: 0x{:08X}", pc);
+
+    let mut buf = [0u32; 64];
+    swd_probe.read_bulk(0x0800_0000, &mut buf).expect("bulk read failed");
+    println!("First word of flash: 0x{:08X}", buf[0]);
 
     loop {
-
-        match swd.read_dp(DP_REG_DPIDR) {
-            Ok(dpidr) => {
-                println!("DPIDR: 0x{:08X}", dpidr);
-            }
-            Err(e) => {
-                println!("Error reading DPIDR: {:?}", e);
-            }   
-        }
-
-        match swd.write_dp(DP_REG_CTRL_STAT, 0x50000000) {
-            Ok(_) => {
-                println!("Wrote to CTRL/STAT register");
-            }
-            Err(e) => {
-                println!("Error writing to CTRL/STAT register: {:?}", e);
-            }
-        }
-
-        match swd.read_dp(DP_REG_CTRL_STAT) {
-            Ok(ctrl_stat) => {
-                println!("CTRL/STAT: 0x{:08X}", ctrl_stat);
-            }
-            Err(e) => {
-                println!("Error reading CTRL/STAT register: {:?}", e);
-            }
-        }
-
         let start = Instant::now();
         while start.elapsed() < Duration::from_secs(2) {}
     }
