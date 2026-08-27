@@ -5,7 +5,6 @@ pub mod transport;
 use esp_println::println;
 use target::dp::*;
 use target::ap::*;
-use target::cortex_m::*;
 use transport::Transport;
 
 pub struct Probe<T: Transport> {
@@ -56,7 +55,8 @@ impl<T: Transport> Probe<T> {
         self.transport.write_ap(0, AP_CSW, CSW_32_SINGLE)?;
         self.transport.write_ap(0, AP_TAR, addr)?;
 
-        self.transport.read_ap(0, AP_DRW)?; // Dummy read
+        // TODO: Optimize this by read_ap_raw/external_fn
+        // self.transport.read_ap(0, AP_DRW)?; 
 
         for i in 0..buffer.len() {
             buffer[i] = self.transport.read_ap(0, AP_DRW)?;
