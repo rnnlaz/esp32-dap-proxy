@@ -28,8 +28,8 @@ impl <'a> SwdProtocol<'a> {
         let start = 1u8;
         let apndp_bit = (apndp as u8) << 1;
         let rnw_bit = (rnw as u8) << 2;
-        let addr_bit = ((addr >> 2) & 0x03) << 3;
-        let payload = apndp_bit | rnw_bit | addr_bit;
+        let addr_bits = ((addr >> 2) & 0x03) << 3;
+        let payload = apndp_bit | rnw_bit | addr_bits;
         let parity_bit = ((payload.count_ones() % 2) as u8) << 5;
         let stop = 0u8 << 6;
         let park = 1u8 << 7;
@@ -45,7 +45,7 @@ impl <'a> SwdProtocol<'a> {
     fn turnaround(&mut self) {
         if self.io.is_swdio_output() {
             self.io.set_swdio_input();
-            self.io.clock_cycle(); // 测试f103时，需注释本此clock
+            self.io.clock_cycle();
         } else {
             self.io.clock_cycle();
             self.io.set_swdio_output();
@@ -54,7 +54,7 @@ impl <'a> SwdProtocol<'a> {
 
     pub fn sync(&mut self) {
         self.io.line_reset();
-        self.io.write_bits( 0x79E7u16.reverse_bits().into(), 16);
+        self.io.write_bits(0xE79E, 16);
         self.io.line_reset();
 
         self.idle();
@@ -71,6 +71,7 @@ impl <'a> SwdProtocol<'a> {
 
         if ack != 0b001 {
             self.turnaround();
+            self.sync();
 
             return match ack {
                 0b100 => Err(SwdError::AckFault),
@@ -83,7 +84,7 @@ impl <'a> SwdProtocol<'a> {
         let parity_bit = self.io.read_bit();
 
         self.turnaround();
-
+        
         self.idle();
 
         let expected_parity = (data.count_ones() % 2) != 0;
@@ -105,6 +106,7 @@ impl <'a> SwdProtocol<'a> {
 
         if ack != 0b001 {
             self.turnaround();
+            self.sync();
 
             return match ack {
                 0b100 => Err(SwdError::AckFault),
@@ -115,11 +117,11 @@ impl <'a> SwdProtocol<'a> {
 
         self.turnaround();
 
-        self.idle();
-
         self.io.write_bits(data, 32);
         let parity = (data.count_ones() % 2) != 0;
         self.io.write_bit(parity);
+
+        self.idle();
 
         Ok(())        
     }

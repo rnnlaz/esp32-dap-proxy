@@ -1,3 +1,5 @@
+use esp_println::println;
+
 use super::protocol::{SwdError, SwdProtocol};
 
 pub const DP_REG_DPIDR: u8 = 0x00;
@@ -15,12 +17,15 @@ impl<'a> SwdProtocol<'a> {
         self.read_dp(DP_REG_DPIDR)
     }
 
+    pub fn read_ctrl_stat(&mut self) -> Result<u32, SwdError> {
+        self.read_dp(DP_REG_CTRL_STAT)
+    }
+
     pub fn dp_power_up(&mut self) -> Result<(), SwdError> {
         let pwr_req = CDBGPWRUPREQ | CSYSPWRUPREQ;
         self.write_dp(DP_REG_CTRL_STAT, pwr_req)?;
 
-        for _ in 0..1000 { core::hint::black_box(()); }
-        for _ in 0..100 {
+        for _ in 0..1000 {
             let stat = self.read_dp(DP_REG_CTRL_STAT)?;
             if (stat & (CDBGPWRUPACK | CSYSPWRUPACK)) == (CDBGPWRUPACK | CSYSPWRUPACK) {
                 return Ok(());

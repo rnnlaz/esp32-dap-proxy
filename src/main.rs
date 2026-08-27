@@ -52,23 +52,15 @@ fn main() -> ! {
             Ok(dpidr) => {
                 println!("DPIDR: {:#010X}", dpidr);
                 match swd.dp_power_up() {
-                    Ok(()) => {
-                        println!("DP power up successful");
-                    }
-                    Err(e) => {
-                        println!("Error powering up DP: {:?}", e);
-                    }
+                    Ok(()) => println!("DP power up successful"),
+                    Err(e) => println!("Error powering up DP: {:?}", e),
                 }
-                match swd.select_ap_bank(0, 0) {
-                    Ok(()) => {
-                        println!("AP bank selection successful");
-                    }
-                    Err(e) => {
-                        println!("Error selecting AP bank: {:?}", e);
-                    }
-                }
+                swd.read_ctrl_stat().map(|ctrl_stat| {
+                    println!("CTRL/STAT: {:#010X}", ctrl_stat);
+                }).unwrap_or_else(|e| {
+                    println!("Error reading CTRL/STAT: {:?}", e);
+                });
             }
-
             Err(e) => {
                 println!("Error reading DPIDR: {:?}", e);
             }
