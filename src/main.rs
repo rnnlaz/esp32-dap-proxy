@@ -13,14 +13,14 @@ use esp_hal::{
 
 use esp_println::println;
 
-mod swd;
-use swd::SwdIo;
-use swd::SwdProtocol;
+use crate::probe::{target::dp::{DP_REG_CTRL_STAT, DP_REG_DPIDR}, transport::Transport};
 
 #[panic_handler]
 fn panic(_: &core::panic::PanicInfo) -> ! {
     loop {}
 }
+
+mod probe;
 
 
 // This creates a default app-descriptor required by the esp-idf bootloader.
@@ -43,26 +43,36 @@ fn main() -> ! {
     let swclk = Output::new(peripherals.GPIO0, Level::Low, OutputConfig::default());
     let swdio = Flex::new(peripherals.GPIO1);
 
-    let swd_io = SwdIo::new(swclk, swdio);
-    let mut swd = SwdProtocol::new(swd_io);
-    swd.sync();
-    
+    let swd_io = probe::io::bitbang::BitBangIo::new(swclk, swdio, None);
+    let mut swd = probe::transport::swd::Swd::new(swd_io);
+    swd.init().expect("Failed to initialize SWD transport");
+
     loop {
-        match swd.read_dpidr() {
+
+        match swd.read_dp(DP_REG_DPIDR) {
             Ok(dpidr) => {
-                println!("DPIDR: {:#010X}", dpidr);
-                match swd.dp_power_up() {
-                    Ok(()) => println!("DP power up successful"),
-                    Err(e) => println!("Error powering up DP: {:?}", e),
-                }
-                swd.read_ctrl_stat().map(|ctrl_stat| {
-                    println!("CTRL/STAT: {:#010X}", ctrl_stat);
-                }).unwrap_or_else(|e| {
-                    println!("Error reading CTRL/STAT: {:?}", e);
-                });
+                println!("DPIDR: 0x{:08X}", dpidr);
             }
             Err(e) => {
                 println!("Error reading DPIDR: {:?}", e);
+            }   
+        }
+
+        match swd.write_dp(DP_REG_CTRL_STAT, 0x50000000) {
+            Ok(_) => {
+                println!("Wrote to CTRL/STAT register");
+            }
+            Err(e) => {
+                println!("Error writing to CTRL/STAT register: {:?}", e);
+            }
+        }
+
+        match swd.read_dp(DP_REG_CTRL_STAT) {
+            Ok(ctrl_stat) => {
+                println!("CTRL/STAT: 0x{:08X}", ctrl_stat);
+            }
+            Err(e) => {
+                println!("Error reading CTRL/STAT register: {:?}", e);
             }
         }
 
