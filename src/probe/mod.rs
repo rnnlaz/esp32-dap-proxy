@@ -2,8 +2,10 @@ pub mod io;
 pub mod target;
 pub mod transport;
 
+use esp_println::println;
 use target::dp::*;
 use target::ap::*;
+use target::cortex_m::*;
 use transport::Transport;
 
 pub struct Probe<T: Transport> {
@@ -30,11 +32,13 @@ impl<T: Transport> Probe<T> {
 
     pub fn reset(&mut self) -> Result<(), transport::Error> {
         self.transport.reset_state();
-        self.transport.write_dp(DP_SELECT, 0x0000_0010)?;
+        self.transport.write_dp(DP_SELECT, 0x0000_0004)?;
         self.transport.write_dp(DP_ABORT, 0x1F)?;
         Ok(())
     }
+}
 
+impl<T: Transport> Probe<T> {
     pub fn read32(&mut self, addr: u32) -> Result<u32, transport::Error> {
         self.transport.write_ap(0, AP_CSW, CSW_32_OFF)?;
         self.transport.write_ap(0, AP_TAR, addr)?;
@@ -70,5 +74,56 @@ impl<T: Transport> Probe<T> {
         }
 
         Ok(())
+    }
+}
+
+impl<T: Transport> Probe<T> {
+    pub fn clear_sticky(&mut self) -> Result<(), transport::Error> {
+        println!("clear_sticky: writing ABORT");
+        let ab = self.transport.write_dp(DP_ABORT, 0x1F);
+        println!("clear_sticky: ABORT write => {:?}", ab);
+        ab
+    }
+
+    pub fn halt(&mut self) -> Result<(), transport::Error> {
+        self.write32(DHCSR, DBGKEY | C_DEBUGEN | C_HALT)?;
+
+        for _ in 0..1000 {
+            match self.read32(DHCSR) {
+                Ok(dhcsr) if dhcsr & S_HALT != 0 => return Ok(()),
+                Ok(_) => {}
+                Err(transport::Error::Fault) => self.clear_sticky()?,
+                Err(e) => return Err(e),
+            }
+        }
+        Err(transport::Error::Io)
+    }
+
+    pub fn resume(&mut self) -> Result<(), transport::Error> {
+        self.write32(DHCSR, DBGKEY | C_DEBUGEN)?;
+
+        for _ in 0..1000 {
+            let dhcsr = self.read32(DHCSR)?;
+            if (dhcsr & S_HALT) == 0 {
+                return Ok(());
+            }
+        }
+        Err(transport::Error::Io)
+    }
+
+    pub fn read_register(&mut self, n: u16) -> Result<u32, transport::Error> {
+        self.write32(DCRSR, n as u32)?;
+        
+        for _ in 0..1000 {
+            match self.read32(DHCSR) {
+                Ok(dhcsr) if dhcsr & S_REGRDY != 0 => {
+                    return self.read32(DCRDR);
+                }
+                Ok(_) => {}
+                Err(transport::Error::Fault) => self.clear_sticky()?,
+                Err(e) => return Err(e),
+            }
+        }
+        self.read32(DCRDR)
     }
 }

@@ -1,4 +1,4 @@
-use crate::probe::{io::Io, target::dp::{DP_RDBUFF, DP_SELECT}, transport::{Error, Transport}};
+use super::super::{io::Io, target::dp::{DP_RDBUFF, DP_SELECT}, transport::{Error, Transport}};
 
 pub struct Swd<I: Io> {
     io: I,
