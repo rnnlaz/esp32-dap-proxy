@@ -27,3 +27,4 @@ target/
 
 
 !src/probe/target/
+.env
