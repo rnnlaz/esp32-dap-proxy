@@ -10,20 +10,26 @@ path = "./src/main.rs"
 
 [dependencies]
 esp-hal = { version = "~1.1.0", features = ["esp32c3", "unstable"] }
-
-
 esp-bootloader-esp-idf = { version = "0.5.0", features = ["esp32c3"] }
 
 critical-section = "1.2.0"
 esp-println = { version = "0.17.0", features = ["esp32c3"] }
 embedded-hal = "1.0.0"
+esp-rtos = { version = "0.3.0", features = ["esp32c3", "embassy", "esp-alloc"] }
+esp-radio = { version = "0.18.0", features = ["esp32c3", "wifi", "ble", "unstable"] }
+esp-alloc = { version = "0.10.0" , features = ["esp32c3"] }
+embassy-executor = "0.10.0"
+embassy-net = { version = "0.9.1", features = ["medium-ethernet", "proto-ipv4", "tcp"] }
 
 
 # For fine tuning these settings, please refer to https://doc.rust-lang.org/cargo/reference/profiles.html
 [profile.dev]
 # The default debug profile is too slow and too big for resource-constrained devices.
 # Always build with some optimizations enabled.
-opt-level = "s"
+opt-level = 's'
+
+[profile.dev.package.esp-radio]
+opt-level = 3
 
 [profile.release]
 codegen-units = 1     # LLVM can perform better optimizations using a single thread

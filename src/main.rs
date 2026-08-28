@@ -8,14 +8,10 @@
 #![deny(clippy::large_stack_frames)]
 
 use esp_hal::{
-    clock::CpuClock, gpio::*, main, time::{Duration, Instant},
+    clock::CpuClock, interrupt::software::SoftwareInterruptControl, ram, time::{Duration, Instant}, timer::timg::TimerGroup,
 };
 
 use esp_println::println;
-
-use crate::probe::target::cortex_m::REG_PC;
-
-
 
 #[panic_handler]
 fn panic(info : &core::panic::PanicInfo) -> ! {
@@ -33,88 +29,23 @@ esp_bootloader_esp_idf::esp_app_desc!();
     clippy::large_stack_frames,
     reason = "it's not unusual to allocate larger buffers etc. in main"
 )]
-#[main]
+#[esp_hal::main]
 fn main() -> ! {
-    // generator version: 1.3.0
-    // generator parameters: --chip esp32c3 -o nightly-x86_64-pc-windows-gnu -o vscode -o esp32c3-wroom-02 -o unstable-hal
-
 
     let config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
     let peripherals = esp_hal::init(config);
 
-    let swclk = Output::new(peripherals.GPIO0, Level::Low, OutputConfig::default());
-    let swdio = Flex::new(peripherals.GPIO1);
+    esp_alloc::heap_allocator!(#[ram(reclaimed)] size: 64 * 1024);
+    esp_alloc::heap_allocator!(size: 36 * 1024);
 
-    let swd_io = probe::io::bitbang::BitBangIo::new(swclk, swdio, None);
-    let swd = probe::transport::swd::Swd::new(swd_io);
-    let mut swd_probe = probe::Probe::new(swd);
+    let timg0 = TimerGroup::new(peripherals.TIMG0);
+    let software_interrupt = SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
+    esp_rtos::start(timg0.timer0, software_interrupt.software_interrupt0);
 
-    println!("Starting SWD probe...");
-    let id = swd_probe.connect().expect("Failed to connect to target");
-    println!("Connected to target with ID: 0x{:08X}", id);
-
-    let sp = swd_probe.read32(0x0000_0000).expect("read SP failed");
-    println!("SP: 0x{:08X}", sp);
-
-    let pc = swd_probe.read32(0x0000_0004).expect("read PC failed");
-    println!("PC: 0x{:08X}", pc);
-
-    let mut buf = [0u32; 64];
-    swd_probe.read_bulk(0x0800_0000, &mut buf).expect("bulk read failed");
-    println!("First word of flash: 0x{:08X}", buf[0]);
-
-    let mut target = probe::target::cortex_m::CortexM::new(&mut swd_probe).expect("Failed to create Cortex-M target");
-
-    target.halt().expect("Failed to halt target");
-    println!("Target halted.");
-
-    let pc = target.read_register(REG_PC).expect("Failed to read PC");
-    println!("PC after halt: 0x{:08X}", pc);
-
-    target.step().expect("Failed to step target");
-    println!("Target stepped.");
-
-    let pc1 = target.read_register(REG_PC).expect("Failed to read PC after step");
-    println!("PC after step: 0x{:08X}", pc1);
-
-    target.write_register(REG_PC, pc).expect("Failed to write PC");
-    let pc3 = target.read_register(REG_PC).expect("Failed to read PC after write");
-    println!("PC after write: 0x{:08X}", pc3);
-
-    let regs = target.read_core_registers().expect("Failed to read core registers");
-    for i in 0..regs.len() {
-        println!("R{}: 0x{:08X}", i, regs[i]);
-    }
-    println!("XPSR: 0x{:08X}", regs[16]);
-
-    let frame = target.read_current_stack_frame().expect("Failed to read current stack frame");
-    println!("Current stack frame:");
-    for i in 0..frame.len() {
-        println!("Stack[{}]: 0x{:08X}", i, frame[i]);
-    }
-
-    target.resume().expect("Failed to resume target");
-    println!("Target resumed.");
-
-    target.halt().expect("1");
-    let a = target.read_register(REG_PC).expect("2");
-    println!("PC at halt: 0x{:08X}", a);
-
-    target.step().expect("9");
-    let b = target.read_register(REG_PC).expect("3");
-    println!("PC after step: 0x{:08X}", b);
-
-    target.set_breakpoint(a).expect("4");
-    println!("BP at 0x{:08X}", a);
-
-    target.resume().expect("5");
-    target.wait_for_halt().expect("6");
-    let pc = target.read_register(REG_PC).expect("7");
-    println!("Hit BP, PC = 0x{:08X}", pc);   // ≈ a
+    
 
     loop {
         let start = Instant::now();
         while start.elapsed() < Duration::from_secs(2) {}
     }
-    // for inspiration have a look at the examples at https://github.com/esp-rs/esp-hal/tree/esp-hal-v1.1.0/examples
 }
