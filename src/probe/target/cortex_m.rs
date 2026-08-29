@@ -81,17 +81,17 @@ pub const FPB_COMP_ENABLE: u32 = 1 << 0;
 
 use esp_println::println;
 
-use super::super::Probe;
+use super::super::_Probe;
 use super::super::transport;
 
 pub struct CortexM<'a, T: transport::Transport> {
-    probe: &'a mut Probe<T>,
+    probe: &'a mut _Probe<T>,
     breakpoints_slots: [Option<u32>; 6],
     breakpoints_num: usize,
 }
 
 impl<'a, T: transport::Transport> CortexM<'a, T> {
-    pub fn new(probe: &'a mut Probe<T>) -> Result<Self, transport::Error> {
+    pub fn new(probe: &'a mut _Probe<T>) -> Result<Self, transport::Error> {
         let ctrl = probe.read32(FP_CTRL)?;
         let breakpoints_num = ((ctrl & FPB_NUM_CODE_MASK) >> 4) as usize;
         Ok(CortexM {

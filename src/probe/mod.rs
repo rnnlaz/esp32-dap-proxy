@@ -7,11 +7,11 @@ use target::ap::*;
 use target::dp::*;
 use transport::Transport;
 
-pub struct Probe<T: Transport> {
+pub struct _Probe<T: Transport> {
     transport: T,
 }
 
-impl<T: Transport> Probe<T> {
+impl<T: Transport> _Probe<T> {
     pub fn new(transport: T) -> Self {
         Self { transport }
     }
@@ -38,7 +38,7 @@ impl<T: Transport> Probe<T> {
     }
 }
 
-impl<T: Transport> Probe<T> {
+impl<T: Transport> _Probe<T> {
     pub fn read32(&mut self, addr: u32) -> Result<u32, transport::Error> {
         self.transport.write_ap(0, AP_CSW, CSW_32_OFF)?;
         self.transport.write_ap(0, AP_TAR, addr)?;

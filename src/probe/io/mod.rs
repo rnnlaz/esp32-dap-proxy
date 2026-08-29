@@ -14,12 +14,6 @@ pub trait Io {
 
     fn clock_cycle(&mut self);
 
-    fn init(&mut self) {
-        self.set_clk_low();
-        self.set_data_high();
-        self.set_data_output();
-    }
-
     fn set_reset(&mut self, high: bool) {}
 
     fn line_reset(&mut self) {

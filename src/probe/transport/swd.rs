@@ -105,14 +105,14 @@ impl<I: Io> Swd<I> {
         Ok(data)
     }
 
-    fn select_ap(&mut self, ap_select: u8, addr: u8) -> Result<(), Error> {
+    fn _select_ap(&mut self, ap_select: u8, addr: u8) -> Result<(), Error> {
         let bank = (addr >> 4) & 0x0F;
         let select = ((ap_select as u32) << 24) | ((bank as u32) << 4);
         Ok(())
     }
 
-    fn read_ap_raw(&mut self, select: u8, addr: u8) -> Result<u32, Error> {
-        self.select_ap(select, addr)?;
+    fn _read_ap_raw(&mut self, select: u8, addr: u8) -> Result<u32, Error> {
+        self._select_ap(select, addr)?;
         self.transfer(true, true, addr, None)
     }
 

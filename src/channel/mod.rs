@@ -7,7 +7,7 @@ use crate::cmd::dap;
 use crate::probe::transport::Transport;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Kind {
+pub enum _Kind {
     Tcp,
     Usb,
     Ble,
