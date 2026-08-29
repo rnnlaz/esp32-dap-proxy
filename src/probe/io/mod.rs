@@ -20,6 +20,8 @@ pub trait Io {
         self.set_data_output();
     }
 
+    fn set_reset(&mut self, high: bool) {}
+
     fn line_reset(&mut self) {
         self.set_data_high();
         self.set_data_output();

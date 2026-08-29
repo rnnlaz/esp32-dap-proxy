@@ -6,6 +6,7 @@ pub struct BitBangIo<'a> {
     swclk: Output<'a>,
     swdio: Flex<'a>,
     delay: u32,
+    reset: Option<Output<'a>>,
 }
 
 impl<'a> BitBangIo<'a> {
@@ -29,8 +30,19 @@ impl<'a> BitBangIo<'a> {
             swclk,
             swdio,
             delay: delay.unwrap_or(Self::DEFAULT_DELAY),
+            reset: None,
         }
     }
+
+    pub fn with_reset(mut self, mut reset: Output<'a>) -> Self {
+        let cfg = OutputConfig::default()
+            .with_drive_mode(DriveMode::OpenDrain)
+            .with_pull(Pull::Up);
+        reset.apply_config(&cfg);
+        reset.set_high();
+        self.reset = Some(reset);
+        self
+    }    
 
     fn nop_delay(&self) {
         for _ in 0..self.delay {
@@ -40,6 +52,16 @@ impl<'a> BitBangIo<'a> {
 }
 
 impl Io for BitBangIo<'_> {
+    fn set_reset(&mut self, high: bool) {
+        if let Some(pin) = self.reset.as_mut() {
+            if high {
+                pin.set_high();
+            } else {
+                pin.set_low();
+            }
+        }
+    }
+
     fn set_clk_high(&mut self) {
         self.swclk.set_high();
         self.nop_delay();

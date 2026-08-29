@@ -4,10 +4,13 @@ use super::super::{
     transport::{Error, Transport},
 };
 
+use esp_hal::time::{Duration, Instant};
+
 pub struct Swd<I: Io> {
     io: I,
     select_cache: u32,
     driving: bool,
+    last_pins: u8,
 }
 
 impl<I: Io> Swd<I> {
@@ -16,6 +19,7 @@ impl<I: Io> Swd<I> {
             io,
             select_cache: !0,
             driving: true,
+            last_pins: 0x80,
         }
     }
 }
@@ -136,6 +140,28 @@ impl<I: Io> Transport for Swd<I> {
         self.select_cache = !0;
         self.driving = true;
         Ok(())
+    }
+
+    fn swj_sequence(&mut self, count: u8, data: &[u8]) -> Result<(), Error> {
+        let n = (count as usize).min(data.len() * 8);
+        for i in 0..n {
+            self.io.write_bit((data[i / 8] >> (i % 8)) & 1 != 0);
+        }
+        self.select_cache = !0;
+        Ok(())
+    }
+
+    fn swj_pins(&mut self, pin_out: u8, pin_sel: u8, wait_ms: u32) -> Result<u8, Error> {
+        if pin_sel & 0x80 != 0 {
+            self.io.set_reset(pin_out & 0x80 != 0);
+            self.last_pins = (self.last_pins & !0x80) | (pin_out & 0x80);
+        }
+        if wait_ms > 0 {
+            let ms = wait_ms.min(5000);
+            let start = Instant::now();
+            while start.elapsed() < Duration::from_millis(ms as u64) {}
+        }
+        Ok(self.last_pins)
     }
 
     fn read_dp(&mut self, addr: u8) -> Result<u32, Error> {
