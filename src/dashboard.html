@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>esp-daplink 控制台</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --bg: #0e1116; --card: #161b23; --line: #232a35;
+    --fg: #d7dee8; --muted: #8b96a5; --acc: #4ea1ff;
+    --ok: #3ecf8e; --warn: #ffb454; --err: #ff6b6b;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg);
+         font: 14px/1.5 "Segoe UI", system-ui, sans-serif; }
+  header { display: flex; align-items: baseline; gap: 18px; flex-wrap: wrap;
+           padding: 14px 20px; border-bottom: 1px solid var(--line); }
+  h1 { font-size: 16px; margin: 0; letter-spacing: .5px; }
+  header .meta { color: var(--muted); font-size: 12px; }
+  header .meta b { color: var(--fg); font-weight: 600; }
+  main { padding: 16px 20px; display: grid; grid-template-columns: 330px 1fr;
+         gap: 16px; height: calc(100vh - 58px); }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; height: auto; } #console { height: 50vh; } }
+  .cards { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; align-content: start; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+  .card .k { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .4px; }
+  .card .v { font-size: 22px; font-weight: 600; margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .wide { grid-column: span 2; }
+  #console { background: #0a0d12; border: 1px solid var(--line); border-radius: 10px;
+             flex: 1; min-height: 0; overflow: auto; padding: 10px 12px;
+             font: 12px/1.55 Consolas, Menlo, monospace; }
+  .log { white-space: pre-wrap; word-break: break-all; }
+  .log .t { color: #5a6675; margin-right: 8px; }
+  .log .lv { display: inline-block; width: 48px; font-weight: 700; margin-right: 8px; }
+  .lv.INFO  { color: var(--acc); }
+  .lv.WARN  { color: var(--warn); }
+  .lv.ERROR { color: var(--err); }
+  .lv.DEBUG { color: #9aa7b8; }
+  .lv.TRACE { color: #6e7a89; }
+  .bar { display: flex; gap: 10px; align-items: center; margin-bottom: 8px; }
+  button { background: var(--card); color: var(--fg); border: 1px solid var(--line);
+           border-radius: 8px; padding: 5px 12px; cursor: pointer; font-size: 12px; }
+  button.on { border-color: var(--acc); color: var(--acc); }
+  #conn { color: var(--muted); font-size: 12px; margin-left: auto; }
+</style>
+</head>
+<body>
+<header>
+  <h1>esp-daplink 控制台</h1>
+  <span class="meta">目标 <b id="target">–</b></span>
+  <span class="meta">USB/IP <b id="listen">–</b></span>
+  <span class="meta">运行 <b id="uptime">–</b></span>
+</header>
+<main>
+  <section class="cards">
+    <div class="card"><div class="k">USB/IP 会话</div><div class="v" id="c_sessions">0</div></div>
+    <div class="card"><div class="k">EP0 请求</div><div class="v" id="c_ep0">0</div></div>
+    <div class="card"><div class="k">EP1 OUT 帧</div><div class="v" id="c_out">0</div></div>
+    <div class="card"><div class="k">EP1 IN 帧</div><div class="v" id="c_in">0</div></div>
+    <div class="card"><div class="k">链路请求</div><div class="v" id="c_req">0</div></div>
+    <div class="card"><div class="k">链路重试</div><div class="v" id="c_retry">0</div></div>
+    <div class="card wide"><div class="k">链路错误</div><div class="v" id="c_err">0</div></div>
+    <div class="card wide"><div class="k">命令往返 RTT ms（avg / last / max）</div>
+      <div class="v" id="c_rtt" style="font-size:16px">–</div></div>
+    <div class="card wide"><div class="k">最近链路错误</div>
+      <div class="v" id="c_lasterr" style="font-size:12px;color:var(--muted);font-weight:400">–</div></div>
+  </section>
+  <section style="display:flex;flex-direction:column;min-height:0;">
+    <div class="bar">
+      <button id="autoscroll" class="on">自动滚动</button>
+      <button id="clear">清屏</button>
+      <span id="conn">SSE 未连接</span>
+    </div>
+    <div id="console"></div>
+  </section>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+let lastSeq = -1, auto = true;
+const fmt = n => n.toLocaleString('en-US');
+
+async function pollStatus() {
+  try {
+    const s = await (await fetch('/api/status')).json();
+    $('target').textContent = s.target;
+    $('listen').textContent = s.listen_usbip;
+    $('uptime').textContent = s.uptime_secs >= 60
+      ? Math.floor(s.uptime_secs / 60) + 'm ' + (s.uptime_secs % 60) + 's'
+      : s.uptime_secs + 's';
+    $('c_sessions').textContent = fmt(s.counters.usb_sessions);
+    $('c_ep0').textContent = fmt(s.counters.ep0_requests);
+    $('c_out').textContent = fmt(s.counters.ep1_out_frames);
+    $('c_in').textContent = fmt(s.counters.ep1_in_frames);
+    $('c_req').textContent = fmt(s.counters.link_requests);
+    $('c_retry').textContent = fmt(s.counters.link_retries);
+    $('c_err').textContent = fmt(s.counters.link_errors);
+    if (s.rtt) {
+      $('c_rtt').textContent =
+        s.rtt.avg_ms.toFixed(2) + ' / ' + s.rtt.last_ms.toFixed(2) + ' / ' + s.rtt.max_ms.toFixed(2);
+    }
+    $('c_lasterr').textContent = s.last_link_error ?? '–';
+  } catch (e) { /* 服务未就绪时静默 */ }
+}
+
+function addLog(ev) {
+  if (ev.seq <= lastSeq) return;
+  lastSeq = ev.seq;
+  const div = document.createElement('div'); div.className = 'log';
+  const t = document.createElement('span'); t.className = 't';
+  t.textContent = ev.ts.toFixed(3) + 's';
+  const lv = document.createElement('span'); lv.className = 'lv ' + ev.level;
+  lv.textContent = ev.level;
+  const m = document.createElement('span'); m.textContent = ev.message;
+  div.append(t, lv, m);
+  $('console').append(div);
+  if (auto) $('console').scrollTop = $('console').scrollHeight;
+  while ($('console').children.length > 2000) $('console').firstChild.remove();
+}
+
+async function loadHistory() {
+  const list = await (await fetch('/api/logs/history')).json();
+  list.forEach(addLog);
+}
+
+const es = new EventSource('/api/logs/stream');
+es.onopen = () => { $('conn').textContent = 'SSE 已连接'; };
+es.onerror = () => { $('conn').textContent = 'SSE 重连中…'; };
+es.addEventListener('log', e => addLog(JSON.parse(e.data)));
+
+$('autoscroll').onclick = e => { auto = !auto; e.target.classList.toggle('on', auto); };
+$('clear').onclick = () => { $('console').innerHTML = ''; };
+
+loadHistory();
+pollStatus();
+setInterval(pollStatus, 2000);
+</script>
+</body>
+</html>
