@@ -893,6 +893,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "esp-daplink-target"
+version = "0.1.0"
+dependencies = [
+ "critical-section",
+ "dotenvy",
+ "embassy-executor",
+ "embassy-futures",
+ "embassy-net",
+ "embassy-time",
+ "embedded-hal 1.0.0",
+ "embedded-io-async 0.7.0",
+ "esp-alloc",
+ "esp-bootloader-esp-idf",
+ "esp-hal",
+ "esp-println",
+ "esp-radio",
+ "esp-rtos",
+ "reqwless",
+ "static_cell",
+]
+
+[[package]]
 name = "esp-hal"
 version = "1.2.0-rc.0"
 source = "git+https://github.com/esp-rs/esp-hal?branch=main#d40f3f8dbfc8862e2817324425b99ba409fb9144"
@@ -1621,28 +1643,6 @@ name = "memchr"
 version = "2.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
-
-[[package]]
-name = "my-esp-debugger"
-version = "0.1.0"
-dependencies = [
- "critical-section",
- "dotenvy",
- "embassy-executor",
- "embassy-futures",
- "embassy-net",
- "embassy-time",
- "embedded-hal 1.0.0",
- "embedded-io-async 0.7.0",
- "esp-alloc",
- "esp-bootloader-esp-idf",
- "esp-hal",
- "esp-println",
- "esp-radio",
- "esp-rtos",
- "reqwless",
- "static_cell",
-]
 
 [[package]]
 name = "nb"

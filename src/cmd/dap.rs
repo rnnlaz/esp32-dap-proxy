@@ -1,6 +1,6 @@
 use esp_println::println;
 
-use crate::host::Channel;
+use crate::channel::Channel;
 use crate::probe::target::dp::{
     CDBGPWRUPACK, CDBGPWRUPREQ, CSYSPWRUPACK, CSYSPWRUPREQ, DP_ABORT, DP_CTRL_STAT, DP_DPIDR,
 };

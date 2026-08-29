@@ -28,7 +28,7 @@ use esp_radio::wifi::{
     AuthenticationMethodConfig, Config, ControllerConfig, Interface, WifiController, sta::StationConfig,
 };
 
-use crate::host::tcp::TcpChannel;
+use crate::channel::tcp::TcpChannel;
 use probe::io::bitbang::BitBangIo;
 use probe::transport::swd::Swd;
 
@@ -48,7 +48,7 @@ macro_rules! mk_static {
 }
 
 mod probe;
-mod host;
+mod channel;
 mod cmd;
 
 // This creates a default app-descriptor required by the esp-idf bootloader.
@@ -135,7 +135,7 @@ async fn main(spawner: Spawner) -> ! {
 
 #[embassy_executor::task]
 async fn dap_tcp_task(mut ch: TcpChannel<'static>, mut transport: Swd<BitBangIo<'static>>) {
-    host::run(&mut ch, &mut transport).await;
+    channel::run(&mut ch, &mut transport).await;
 }
 
 #[embassy_executor::task]
