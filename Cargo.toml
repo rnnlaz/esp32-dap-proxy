@@ -9,18 +9,22 @@ name = "my-esp-debugger"
 path = "./src/main.rs"
 
 [dependencies]
-esp-hal = { version = "~1.1.0", features = ["esp32c3", "unstable"] }
-esp-bootloader-esp-idf = { version = "0.5.0", features = ["esp32c3"] }
+esp-hal = { git = "https://github.com/esp-rs/esp-hal", branch = "main", features = ["esp32c3", "unstable"] }
+esp-radio = { git = "https://github.com/esp-rs/esp-hal", branch = "main", features = ["esp32c3", "wifi", "ble", "unstable"] }
+esp-bootloader-esp-idf = { git = "https://github.com/esp-rs/esp-hal", branch = "main", features = ["esp32c3"] }
+esp-println = { git = "https://github.com/esp-rs/esp-hal", branch = "main", features = ["esp32c3"] }
+esp-alloc = { git = "https://github.com/esp-rs/esp-hal", branch = "main", features = ["esp32c3"] }
+esp-rtos = { git = "https://github.com/esp-rs/esp-hal", branch = "main", features = ["esp32c3", "embassy", "esp-radio", "esp-alloc"] }
 
 critical-section = "1.2.0"
-esp-println = { version = "0.17.0", features = ["esp32c3"] }
 embedded-hal = "1.0.0"
-esp-rtos = { version = "0.3.0", features = ["esp32c3", "embassy", "esp-alloc"] }
-esp-radio = { version = "0.18.0", features = ["esp32c3", "wifi", "ble", "unstable"] }
-esp-alloc = { version = "0.10.0" , features = ["esp32c3"] }
 embassy-executor = "0.10.0"
-embassy-net = { version = "0.9.1", features = ["medium-ethernet", "proto-ipv4", "tcp"] }
-
+embassy-net = { version = "0.9.1", features = ["dhcpv4", "dns", "medium-ethernet", "proto-ipv4", "tcp"] }
+static_cell = "2.1.1"
+embassy-time = "0.5.1"
+embassy-futures = "0.1.2"
+embedded-io-async = "0.7.0"
+reqwless = "0.13.0"
 
 # For fine tuning these settings, please refer to https://doc.rust-lang.org/cargo/reference/profiles.html
 [profile.dev]
