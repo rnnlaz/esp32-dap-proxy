@@ -11,7 +11,10 @@ const ID_CONNECT: u8 = 0x02;
 const ID_DISCONNECT: u8 = 0x03;
 const ID_TRANSFER_CONFIG: u8 = 0x04;
 const ID_TRANSFER: u8 = 0x05;
+const ID_TRANSFER_BLOCK: u8 = 0x06;
 const ID_WRITE_ABORT: u8 = 0x08;
+const ID_SWJ_PINS: u8 = 0x10;
+const ID_SWJ_SEQUENCE: u8 = 0x12;
 
 const ST_OK: u8 = 0x01;
 const ST_WAIT: u8 = 0x02;
@@ -42,7 +45,10 @@ impl<'a, T: Transport> Dap<'a, T> {
             }
             ID_TRANSFER_CONFIG => self.dap_transfer_config(req, resp),
             ID_TRANSFER => self.dap_transfer(req, resp),
+            ID_TRANSFER_BLOCK => self.dap_transfer_block(req, resp),
             ID_WRITE_ABORT => self.dap_write_abort(req, resp),
+            ID_SWJ_PINS => self.dap_swj_pins(req, resp),
+            ID_SWJ_SEQUENCE => self.dap_swj_sequence(req, resp),
             _ => {
                 resp[0] = 0xFF;
                 1
@@ -164,15 +170,7 @@ impl<'a, T: Transport> Dap<'a, T> {
                 None
             };
 
-            let mut tries = 0u32;
-            let result = loop {
-                match self.one_transfer(apndp, rnw, a, wdata) {
-                    Err(ST_WAIT) if (tries as u16) < self.wait_retry => tries += 1,
-                    other => break other,
-                }
-            };
-
-            match result {
+            match self.exec_transfer(apndp, rnw, a, wdata) {
                 Ok(Some(v)) => {
                     resp[rpos..rpos + 4].copy_from_slice(&v.to_le_bytes());
                     rpos += 4;
@@ -191,18 +189,102 @@ impl<'a, T: Transport> Dap<'a, T> {
         rpos
     }
 
-    fn one_transfer(&mut self, apndp: bool, rnw: bool, a: u8, wdata: Option<u32>) -> Result<Option<u32>, u8> {
-        let r = match (apndp, rnw) {
-            (false, true) => self.transport.read_dp(a).map(Some),
-            (false, false) => self.transport.write_dp(a, wdata.unwrap_or(0)).map(|_| None),
-            (true, true) => self.transport.read_ap(0, a).map(Some),
-            (true, false) => self.transport.write_ap(0, a, wdata.unwrap_or(0)).map(|_| None),
-        };
-        r.map_err(|e| match e {
-            TErr::Wait => ST_WAIT,
-            TErr::Fault => ST_FAULT,
-            _ => ST_PROTO,
-        })
+    fn exec_transfer(&mut self, apndp: bool, rnw: bool, a: u8, wdata: Option<u32>) -> Result<Option<u32>, u8> {
+        let mut tries = 0u32;
+        loop {
+            let r = match (apndp, rnw) {
+                (false, true) => self.transport.read_dp(a).map(Some),
+                (false, false) => self.transport.write_dp(a, wdata.unwrap_or(0)).map(|_| None),
+                (true, true) => self.transport.read_ap(0, a).map(Some),
+                (true, false) => self.transport.write_ap(0, a, wdata.unwrap_or(0)).map(|_| None),
+            };
+            match r.map_err(|e| match e {
+                TErr::Wait => ST_WAIT,
+                TErr::Fault => ST_FAULT,
+                _ => ST_PROTO,
+            }) {
+                Err(ST_WAIT) if (tries as u16) < self.wait_retry => tries += 1,
+                other => return other,
+            }
+        }
+    }
+
+    fn dap_transfer_block(&mut self, req: &[u8], resp: &mut [u8]) -> usize {
+        if req.len() < 5 {
+            resp[..3].copy_from_slice(&[0, 0, ST_PROTO]);
+            return 3;
+        }
+        let count = (u16::from_le_bytes([req[2], req[3]]) as usize).min((resp.len() - 3) / 4);
+        let rb = req[4];
+        let apndp = rb & 0x01 != 0;
+        let rnw = rb & 0x02 != 0;
+        let a = ((rb >> 2) & 0x03) << 2;
+        if rb & 0xF0 != 0 {
+            resp[..3].copy_from_slice(&[0, 0, ST_PROTO]);
+            return 3;
+        }
+
+        let mut pos = 5;
+        let mut rpos = 3;
+        let mut done = 0u16;
+        let mut status = ST_OK;
+
+        for _ in 0..count {
+            let wdata = if !rnw {
+                if pos + 4 > req.len() {
+                    status = ST_PROTO;
+                    break;
+                }
+                let v = u32::from_le_bytes(req[pos..pos + 4].try_into().unwrap());
+                pos += 4;
+                Some(v)
+            } else {
+                None
+            };
+
+            match self.exec_transfer(apndp, rnw, a, wdata) {
+                Ok(Some(v)) => {
+                    resp[rpos..rpos + 4].copy_from_slice(&v.to_le_bytes());
+                    rpos += 4;
+                    done += 1;
+                }
+                Ok(None) => done += 1,
+                Err(s) => {
+                    status = s;
+                    break;
+                }
+            }
+        }
+
+        resp[0..2].copy_from_slice(&done.to_le_bytes());
+        resp[2] = status;
+        rpos
+    }
+
+    fn dap_swj_sequence(&mut self, req: &[u8], resp: &mut [u8]) -> usize {
+        if req.len() < 2 {
+            resp[0] = 0xFF;
+            return 1;
+        }
+        let bits = req[1] as usize;
+        let nbytes = bits.div_ceil(8);
+        if req.len() < 2 + nbytes {
+            resp[0] = 0xFF;
+            return 1;
+        }
+        let _ = self.transport.swj_sequence(req[1], &req[2..2 + nbytes]);
+        resp[0] = 0x00;
+        1
+    }
+
+    fn dap_swj_pins(&mut self, req: &[u8], resp: &mut [u8]) -> usize {
+        if req.len() < 7 {
+            resp[0] = 0xFF;
+            return 1;
+        }
+        let wait = u32::from_le_bytes([req[3], req[4], req[5], req[6]]);
+        resp[0] = self.transport.swj_pins(req[1], req[2], wait).unwrap_or(0x00);
+        1
     }
 }
 
