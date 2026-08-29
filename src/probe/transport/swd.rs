@@ -1,26 +1,18 @@
 use super::super::{
     io::Io,
-    target::dp::{DP_RDBUFF, DP_SELECT},
+    target::dp::DP_RDBUFF,
     transport::{Error, Transport},
 };
 
-use esp_hal::time::{Duration, Instant};
-
 pub struct Swd<I: Io> {
     io: I,
-    select_cache: u32,
     driving: bool,
     last_pins: u8,
 }
 
 impl<I: Io> Swd<I> {
     pub fn new(io: I) -> Self {
-        Self {
-            io,
-            select_cache: !0,
-            driving: true,
-            last_pins: 0x80,
-        }
+        Self { io, driving: true, last_pins: 0x80 }
     }
 }
 
@@ -71,14 +63,17 @@ impl<I: Io> Swd<I> {
             0b001 => {}
             0b010 => {
                 self.turnaround();
+                self.idle();
                 return Err(Error::Wait);
             }
             0b100 => {
                 self.turnaround();
+                self.idle();
                 return Err(Error::Fault);
             }
             _ => {
                 self.turnaround();
+                self.idle();
                 return Err(Error::Unknown(ack));
             }
         }
@@ -113,10 +108,6 @@ impl<I: Io> Swd<I> {
     fn select_ap(&mut self, ap_select: u8, addr: u8) -> Result<(), Error> {
         let bank = (addr >> 4) & 0x0F;
         let select = ((ap_select as u32) << 24) | ((bank as u32) << 4);
-        if select != self.select_cache {
-            self.write_dp(DP_SELECT, select)?;
-            self.select_cache = select;
-        }
         Ok(())
     }
 
@@ -137,7 +128,6 @@ impl<I: Io> Transport for Swd<I> {
         self.io.line_reset();
         self.idle();
 
-        self.select_cache = !0;
         self.driving = true;
         Ok(())
     }
@@ -147,19 +137,13 @@ impl<I: Io> Transport for Swd<I> {
         for i in 0..n {
             self.io.write_bit((data[i / 8] >> (i % 8)) & 1 != 0);
         }
-        self.select_cache = !0;
         Ok(())
     }
 
-    fn swj_pins(&mut self, pin_out: u8, pin_sel: u8, wait_ms: u32) -> Result<u8, Error> {
+    fn swj_pins(&mut self, pin_out: u8, pin_sel: u8, _wait_ms: u32) -> Result<u8, Error> {
         if pin_sel & 0x80 != 0 {
             self.io.set_reset(pin_out & 0x80 != 0);
             self.last_pins = (self.last_pins & !0x80) | (pin_out & 0x80);
-        }
-        if wait_ms > 0 {
-            let ms = wait_ms.min(5000);
-            let start = Instant::now();
-            while start.elapsed() < Duration::from_millis(ms as u64) {}
         }
         Ok(self.last_pins)
     }
@@ -173,18 +157,17 @@ impl<I: Io> Transport for Swd<I> {
         Ok(())
     }
 
-    fn read_ap(&mut self, select: u8, addr: u8) -> Result<u32, Error> {
-        self.read_ap_raw(select, addr)?;
+    fn read_ap(&mut self, _select: u8, addr: u8) -> Result<u32, Error> {
+        self.transfer(true, true, addr, None)?;
         self.read_rdbuff()
     }
 
-    fn write_ap(&mut self, select: u8, addr: u8, data: u32) -> Result<(), Error> {
-        self.select_ap(select, addr)?;
+    fn write_ap(&mut self, _select: u8, addr: u8, data: u32) -> Result<(), Error> {
         self.transfer(true, false, addr, Some(data))?;
         Ok(())
     }
 
     fn reset_state(&mut self) {
-        self.select_cache = !0;
+        // 预留接口
     }
 }

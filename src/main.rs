@@ -86,11 +86,15 @@ async fn main(spawner: Spawner) -> ! {
 
     println!("linking wifi...");
     let wifi_sta_device = esp_radio::wifi::Interface::station();
-    let controller = esp_radio::wifi::WifiController::new(
+    let mut controller = esp_radio::wifi::WifiController::new(
         peripherals.WIFI,
         ControllerConfig::default().with_initial_config(station_config),
     )
     .unwrap();
+    // 关闭esp32的wifi省电模式，否则会导致DAPLink通信不稳定
+    controller
+        .set_power_saving(esp_radio::wifi::PowerSaveMode::None)
+        .ok();
 
     let sta_config = embassy_net::Config::dhcpv4(Default::default());
 

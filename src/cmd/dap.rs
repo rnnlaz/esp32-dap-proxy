@@ -7,6 +7,7 @@ use crate::probe::target::dp::{
 use crate::probe::transport::{Error as TErr, Transport};
 
 const ID_INFO: u8 = 0x00;
+const ID_HOST_STATUS: u8 = 0x01;
 const ID_CONNECT: u8 = 0x02;
 const ID_DISCONNECT: u8 = 0x03;
 const ID_TRANSFER_CONFIG: u8 = 0x04;
@@ -14,7 +15,9 @@ const ID_TRANSFER: u8 = 0x05;
 const ID_TRANSFER_BLOCK: u8 = 0x06;
 const ID_WRITE_ABORT: u8 = 0x08;
 const ID_SWJ_PINS: u8 = 0x10;
+const ID_SWJ_CLOCK: u8 = 0x11;
 const ID_SWJ_SEQUENCE: u8 = 0x12;
+const ID_SWD_CONFIGURE: u8 = 0x13;
 
 const ST_OK: u8 = 0x01;
 const ST_WAIT: u8 = 0x02;
@@ -24,11 +27,12 @@ const ST_PROTO: u8 = 0x08;
 pub struct Dap<'a, T: Transport> {
     transport: &'a mut T,
     wait_retry: u16,
+    err_logs: u32,
 }
 
 impl<'a, T: Transport> Dap<'a, T> {
     pub fn new(transport: &'a mut T) -> Self {
-        Self { transport, wait_retry: 64 }
+        Self { transport, wait_retry: 64, err_logs: 0 }
     }
 
     pub fn handle(&mut self, req: &[u8], resp: &mut [u8]) -> usize {
@@ -36,22 +40,34 @@ impl<'a, T: Transport> Dap<'a, T> {
             resp[0] = 0xFF;
             return 1;
         }
+        resp[0] = req[0];
         match req[0] {
-            ID_INFO => self.dap_info(req, resp),
-            ID_CONNECT => self.dap_connect(resp),
+            ID_INFO => 1 + self.dap_info(req, &mut resp[1..]),
+            ID_CONNECT => 1 + self.dap_connect(&mut resp[1..]),
             ID_DISCONNECT => {
-                resp[0] = 0x00;
-                1
+                resp[1] = 0x00;
+                2
             }
-            ID_TRANSFER_CONFIG => self.dap_transfer_config(req, resp),
-            ID_TRANSFER => self.dap_transfer(req, resp),
-            ID_TRANSFER_BLOCK => self.dap_transfer_block(req, resp),
-            ID_WRITE_ABORT => self.dap_write_abort(req, resp),
-            ID_SWJ_PINS => self.dap_swj_pins(req, resp),
-            ID_SWJ_SEQUENCE => self.dap_swj_sequence(req, resp),
+            ID_HOST_STATUS => {
+                // DAP_HostStatus：接受连接/运行状态通知，直接 ACK
+                resp[1] = 0x00;
+                2
+            }
+            ID_TRANSFER_CONFIG => 1 + self.dap_transfer_config(req, &mut resp[1..]),
+            ID_TRANSFER => 1 + self.dap_transfer(req, &mut resp[1..]),
+            ID_TRANSFER_BLOCK => 1 + self.dap_transfer_block(req, &mut resp[1..]),
+            ID_WRITE_ABORT => 1 + self.dap_write_abort(req, &mut resp[1..]),
+            ID_SWJ_PINS => 1 + self.dap_swj_pins(req, &mut resp[1..]),
+            ID_SWJ_CLOCK => 1 + self.dap_swj_clock(&mut resp[1..]),
+            ID_SWD_CONFIGURE => {
+                // DAP_SWD_Configure：位带实现无需配置，直接 ACK
+                resp[1] = 0x00;
+                2
+            }
+            ID_SWJ_SEQUENCE => 1 + self.dap_swj_sequence(req, &mut resp[1..]),
             _ => {
-                resp[0] = 0xFF;
-                1
+                resp[1] = 0xFF; // DAP_Error
+                2
             }
         }
     }
@@ -69,13 +85,32 @@ impl<'a, T: Transport> Dap<'a, T> {
             resp[1..=s.len()].copy_from_slice(s);
             return 1 + s.len();
         }
-        if id == 0xF0 {
-            resp[0] = 1;
-            resp[1] = 0x01;
-            return 2;
+        match id {
+            // 目前仅支持 SWD
+            0xF0 => {
+                resp[0] = 1;
+                resp[1] = 0x01;
+                return 2;
+            }
+
+            0xFE => {
+                resp[0] = 1;
+                resp[1] = 1;
+                return 2;
+            }
+
+            0xFF => {
+                resp[0] = 2;
+                resp[1] = 0x00;
+                resp[2] = 0x02;
+                return 3;
+            }
+
+            _ => {
+                resp[0] = 0;
+                return 1;
+            }
         }
-        resp[0] = 0;
-        1
     }
 
     fn dap_connect(&mut self, resp: &mut [u8]) -> usize {
@@ -91,7 +126,7 @@ impl<'a, T: Transport> Dap<'a, T> {
             Err(e) => println!("[dap] power req err: {:?}", e),
         }
 
-        for i in 0..1000 {
+        for i in 0..200 {
             match self.transport.read_dp(DP_CTRL_STAT) {
                 Ok(stat) => {
                     if i < 3 {
@@ -198,14 +233,36 @@ impl<'a, T: Transport> Dap<'a, T> {
                 (true, true) => self.transport.read_ap(0, a).map(Some),
                 (true, false) => self.transport.write_ap(0, a, wdata.unwrap_or(0)).map(|_| None),
             };
-            match r.map_err(|e| match e {
-                TErr::Wait => ST_WAIT,
-                TErr::Fault => ST_FAULT,
-                _ => ST_PROTO,
-            }) {
-                Err(ST_WAIT) if (tries as u16) < self.wait_retry => tries += 1,
-                other => return other,
+            let status = match r {
+                Ok(v) => return Ok(v),
+                Err(TErr::Wait) => ST_WAIT,
+                Err(TErr::Fault) => ST_FAULT,
+
+                Err(TErr::Parity) => {
+                    self.log_xfer_err("parity-error", a, apndp, rnw, tries);
+                    ST_PROTO
+                }
+                Err(e) => {
+                    self.log_xfer_err("no-ack/garbage-ack", a, apndp, rnw, tries);
+                    let _ = e;
+                    ST_PROTO
+                }
+            };
+            match status {
+                // WAIT 在固件端重试；超出封顶后交还宿主处理
+                ST_WAIT if (tries as u16) < self.wait_retry.min(128) => tries += 1,
+                _ => return Err(status),
             }
+        }
+    }
+
+    fn log_xfer_err(&mut self, kind: &str, a: u8, apndp: bool, rnw: bool, tries: u32) {
+        if self.err_logs < 8 {
+            self.err_logs += 1;
+            println!(
+                "[dap] xfer {}: addr=0x{:02X} apndp={} rnw={} tries={}",
+                kind, a, apndp as u8, rnw as u8, tries
+            );
         }
     }
 
@@ -261,6 +318,12 @@ impl<'a, T: Transport> Dap<'a, T> {
         rpos
     }
 
+    fn dap_swj_clock(&mut self, resp: &mut [u8]) -> usize {
+        // 目前由固件延时决定
+        resp[0] = 0x00;
+        1
+    }
+
     fn dap_swj_sequence(&mut self, req: &[u8], resp: &mut [u8]) -> usize {
         if req.len() < 2 {
             resp[0] = 0xFF;
@@ -278,11 +341,11 @@ impl<'a, T: Transport> Dap<'a, T> {
     }
 
     fn dap_swj_pins(&mut self, req: &[u8], resp: &mut [u8]) -> usize {
-        if req.len() < 7 {
+        if req.len() < 10 {
             resp[0] = 0xFF;
             return 1;
         }
-        let wait = u32::from_le_bytes([req[3], req[4], req[5], req[6]]);
+        let wait = u32::from_le_bytes([req[6], req[7], req[8], req[9]]);
         resp[0] = self.transport.swj_pins(req[1], req[2], wait).unwrap_or(0x00);
         1
     }
