@@ -11,29 +11,26 @@ use embassy_futures::select::Either;
 use embassy_time::{Duration, Timer};
 use embassy_executor::Spawner;
 use embassy_net::{
-    IpListenEndpoint,
     Runner,
     StackResources,
-    dns::DnsSocket,
-    tcp::{
-        TcpSocket,
-        client::{TcpClient, TcpClientState},
-    },
 };
 
 use esp_hal::{
     clock::CpuClock,
+    gpio::{Flex, Level, Output, OutputConfig},
     ram,
     timer::timg::TimerGroup,
     rng::Rng,
 };
 
-use esp_println::{println, print};
+use esp_println::println;
 use esp_radio::wifi::{
-    AuthenticationMethodConfig, Config, ControllerConfig, Interface, WifiController, ap::AccessPointConfig, sta::StationConfig,
+    AuthenticationMethodConfig, Config, ControllerConfig, Interface, WifiController, sta::StationConfig,
 };
 
 use crate::host::tcp::TcpChannel;
+use probe::io::bitbang::BitBangIo;
+use probe::transport::swd::Swd;
 
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {
@@ -123,7 +120,12 @@ async fn main(spawner: Spawner) -> ! {
     let tx = mk_static!([u8; 4096], [0u8; 4096]);
     let ch = TcpChannel::new(sta_stack, DAP_PORT, rx, tx);
 
-    spawner.spawn(dap_tcp_task(ch).unwrap());
+    let swclk = Output::new(peripherals.GPIO0, Level::Low, OutputConfig::default());
+    let swdio = Flex::new(peripherals.GPIO1);
+    let swd_io = probe::io::bitbang::BitBangIo::new(swclk, swdio, None);
+    let swd = probe::transport::swd::Swd::new(swd_io);
+
+    spawner.spawn(dap_tcp_task(ch, swd).unwrap());
 
     println!("DAP server listening on port {}", DAP_PORT);
     loop {
@@ -132,8 +134,8 @@ async fn main(spawner: Spawner) -> ! {
 }
 
 #[embassy_executor::task]
-async fn dap_tcp_task(mut ch: TcpChannel<'static>) {
-    host::run(&mut ch).await;
+async fn dap_tcp_task(mut ch: TcpChannel<'static>, mut transport: Swd<BitBangIo<'static>>) {
+    host::run(&mut ch, &mut transport).await;
 }
 
 #[embassy_executor::task]
