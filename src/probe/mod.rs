@@ -3,8 +3,8 @@ pub mod target;
 pub mod transport;
 
 use esp_println::println;
-use target::dp::*;
 use target::ap::*;
+use target::dp::*;
 use transport::Transport;
 
 pub struct Probe<T: Transport> {
@@ -19,7 +19,8 @@ impl<T: Transport> Probe<T> {
     pub fn connect(&mut self) -> Result<u32, transport::Error> {
         self.transport.init()?;
         let id = self.transport.read_dp(DP_DPIDR)?;
-        self.transport.write_dp(DP_CTRL_STAT, CDBGPWRUPREQ | CSYSPWRUPREQ)?;
+        self.transport
+            .write_dp(DP_CTRL_STAT, CDBGPWRUPREQ | CSYSPWRUPREQ)?;
         for _ in 0..1000 {
             let stat = self.transport.read_dp(DP_CTRL_STAT)?;
             if (stat & (CDBGPWRUPACK | CSYSPWRUPACK)) == (CDBGPWRUPACK | CSYSPWRUPACK) {
@@ -56,7 +57,7 @@ impl<T: Transport> Probe<T> {
         self.transport.write_ap(0, AP_TAR, addr)?;
 
         // TODO: Optimize this by read_ap_raw/external_fn
-        // self.transport.read_ap(0, AP_DRW)?; 
+        // self.transport.read_ap(0, AP_DRW)?;
 
         for i in 0..buffer.len() {
             buffer[i] = self.transport.read_ap(0, AP_DRW)?;

@@ -1,4 +1,8 @@
-use super::super::{io::Io, target::dp::{DP_RDBUFF, DP_SELECT}, transport::{Error, Transport}};
+use super::super::{
+    io::Io,
+    target::dp::{DP_RDBUFF, DP_SELECT},
+    transport::{Error, Transport},
+};
 
 pub struct Swd<I: Io> {
     io: I,
@@ -46,7 +50,13 @@ impl<I: Io> Swd<I> {
         }
     }
 
-    fn transfer(&mut self, apndp: bool, rnw: bool, addr: u8, value: Option<u32>) -> Result<u32, Error> {
+    fn transfer(
+        &mut self,
+        apndp: bool,
+        rnw: bool,
+        addr: u8,
+        value: Option<u32>,
+    ) -> Result<u32, Error> {
         let request = Self::make_request(apndp, rnw, addr);
         self.io.write_u32(request as u32, 8);
 
@@ -55,14 +65,23 @@ impl<I: Io> Swd<I> {
         let ack = self.io.read_u32(3) as u8;
         match ack {
             0b001 => {}
-            0b010 => {self.turnaround(); return Err(Error::Wait); }
-            0b100 => {self.turnaround(); return Err(Error::Fault); }
-            _ => {self.turnaround(); return Err(Error::Unknown(ack)); }
+            0b010 => {
+                self.turnaround();
+                return Err(Error::Wait);
+            }
+            0b100 => {
+                self.turnaround();
+                return Err(Error::Fault);
+            }
+            _ => {
+                self.turnaround();
+                return Err(Error::Unknown(ack));
+            }
         }
 
         let data = if rnw {
             let data = self.io.read_u32(32);
-            let partity =  self.io.read_bit();
+            let partity = self.io.read_bit();
 
             self.turnaround();
 
