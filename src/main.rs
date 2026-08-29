@@ -33,6 +33,8 @@ use esp_radio::wifi::{
     AuthenticationMethodConfig, Config, ControllerConfig, Interface, WifiController, ap::AccessPointConfig, sta::StationConfig,
 };
 
+use crate::host::tcp::TcpChannel;
+
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {
     println!("Panic!: {:?}", info);
@@ -49,6 +51,8 @@ macro_rules! mk_static {
 }
 
 mod probe;
+mod host;
+mod cmd;
 
 // This creates a default app-descriptor required by the esp-idf bootloader.
 // For more information see: <https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/app_image_format.html#application-description>
@@ -56,6 +60,8 @@ esp_bootloader_esp_idf::esp_app_desc!();
 
 const SSID: &str = env!("SSID");
 const PASSWORD: &str = env!("PASSWORD");
+
+const DAP_PORT: u16 = 8080;
 
 #[allow(
     clippy::large_stack_frames,
@@ -104,92 +110,30 @@ async fn main(spawner: Spawner) -> ! {
     spawner.spawn(connection(controller).unwrap());
     spawner.spawn(net_task(sta_runner).unwrap());
 
-    let sta_address = loop {
-        if let Some(config) = sta_stack.config_v4() {
-            let address = config.address.address();
-            println!("Got IP: {}", address);
-            break address;
+    loop {
+        if let Some(cfg) = sta_stack.config_v4() {
+            println!("Got IP: {}", cfg.address.address());
+            break;
         }
         println!("Waiting for IP...");
         Timer::after(Duration::from_millis(500)).await;
-    };
-
-    println!("wifi linked!");
-
-    let tcp_client = TcpClient::new(
-        sta_stack,
-        mk_static!(
-            TcpClientState<1, 1500, 1500>,
-            TcpClientState::<1, 1500, 1500>::new()
-        ),
-    );
-    let dns_client = DnsSocket::new(sta_stack);
-
-    let mut sta_server_rx_buffer = [0; 1536];
-    let mut sta_server_tx_buffer = [0; 1536];
-
-    let mut sta_server_socket = TcpSocket::new(
-        sta_stack,
-        &mut sta_server_rx_buffer,
-        &mut sta_server_tx_buffer,
-    );
-    sta_server_socket.set_timeout(None);
-
-    loop {
-        println!("Wait for connection...");
-
-        let result = sta_server_socket.accept(IpListenEndpoint {
-            addr: None,
-            port: 8080,
-        }).await;
-
-        if let Err(e) = result {
-            println!("Failed to accept connection: {:?}", e);
-            continue;
-        }
-
-        println!("Client connected!");
-
-        let mut buffer = [0u8; 1024];
-        let mut pos = 0;
-        loop {
-            match sta_server_socket.read(&mut buffer).await {
-                Ok(0) => {
-                    println!("Read EOF");
-                    break;
-                }
-                Ok(len) => {
-                    pos += len;
-                    match core::str::from_utf8(&buffer[..pos]) {
-                        Ok(to_print) => {
-                            if to_print.contains("\r\n") {
-                                print!("Received: {}", to_print);
-                                use embedded_io_async::Write;
-
-                                let response = &buffer[..pos];
-                                if let Err(e) = sta_server_socket.write_all(response).await {
-                                    println!("Failed to send response: {:?}", e);
-                                }
-
-                                let _ = sta_server_socket.flush().await;
-                                continue;
-                            }
-                        }
-                        Err(e) => {
-                            println!("Failed to parse received data as UTF-8: {:?}", e);
-                            buffer = [0u8; 1024];
-                            pos = 0;
-                        }
-                    }
-                }
-                Err(e) => {
-                    println!("Failed to read from socket: {:?}", e);
-                    break;
-                }
-            }
-        }
-        sta_server_socket.abort();
     }
+
+    let rx = mk_static!([u8; 4096], [0u8; 4096]);
+    let tx = mk_static!([u8; 4096], [0u8; 4096]);
+    let ch = TcpChannel::new(sta_stack, DAP_PORT, rx, tx);
+
+    spawner.spawn(dap_tcp_task(ch).unwrap());
+
+    println!("DAP server listening on port {}", DAP_PORT);
+    loop {
+        Timer::after(Duration::from_secs(3600)).await;
+    }
+}
+
+#[embassy_executor::task]
+async fn dap_tcp_task(mut ch: TcpChannel<'static>) {
+    host::run(&mut ch).await;
 }
 
 #[embassy_executor::task]
