@@ -7,13 +7,6 @@ use crate::cmd::dap;
 use crate::probe::transport::Transport;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum _Kind {
-    Tcp,
-    Usb,
-    Ble,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Error {
     Accept,
     Disconnected,

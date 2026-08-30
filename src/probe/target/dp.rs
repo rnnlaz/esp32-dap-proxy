@@ -1,9 +1,10 @@
 pub const DP_DPIDR: u8 = 0x00;
+
+pub const DP_ABORT: u8 = 0x00;
+
 pub const DP_CTRL_STAT: u8 = 0x04;
 pub const DP_SELECT: u8 = 0x08;
 pub const DP_RDBUFF: u8 = 0x0C;
-
-pub const DP_ABORT: u8 = 0x00;
 
 // CTRL/STAT
 pub const CDBGPWRUPREQ: u32 = 1 << 28;

@@ -28,4 +28,3 @@ target/
 
 !src/probe/target/
 .env
-test.py
