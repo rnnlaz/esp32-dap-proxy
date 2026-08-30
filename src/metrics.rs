@@ -1,7 +1,3 @@
-//! 进程级指标计数器：USB/IP 会话、EP1 流量、链路健康。
-//!
-//! 全部为无锁原子计数，埋点开销可忽略；由 Web 控制台的 `/api/status` 读取。
-
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::Instant;
@@ -36,9 +32,19 @@ pub fn uptime_secs() -> u64 {
     guard.as_ref().map(|t| t.elapsed().as_secs()).unwrap_or(0)
 }
 
+/// 原子计数 +1
+pub fn bump(c: &AtomicU64) {
+    c.fetch_add(1, Ordering::Relaxed);
+}
+
+/// 原子计数 +n
+pub fn add(c: &AtomicU64, n: u64) {
+    c.fetch_add(n, Ordering::Relaxed);
+}
+
 /// 记录一次链路最终失败（重连重试后仍失败），供控制台展示。
 pub fn note_link_error(msg: String) {
-    LINK_ERRORS.fetch_add(1, Ordering::Relaxed);
+    bump(&LINK_ERRORS);
     if let Ok(mut slot) = LAST_LINK_ERROR.lock() {
         *slot = Some(msg);
     }

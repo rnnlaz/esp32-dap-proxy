@@ -1,10 +1,3 @@
-//! USB/IP 协议层（版本 0x0111）。
-//!
-//! 参考内核文档: <https://docs.kernel.org/usb/usbip_protocol.html>
-//!
-//! 职责：OP_DEVLIST / OP_IMPORT 握手、URB 循环（CMD_SUBMIT / CMD_UNLINK），
-//! 把 EP1 bulk 语义委托给 [`crate::bridge::DapBridge`]。本层不感知 ESP32 细节。
-
 use std::error::Error;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -16,23 +9,20 @@ use crate::metrics;
 
 const VERSION: u16 = 0x0111;
 
-// 控制面命令
 const OP_REQ_DEVLIST: u16 = 0x8005;
 const OP_REP_DEVLIST: u16 = 0x0005;
 const OP_REQ_IMPORT: u16 = 0x8003;
 const OP_REP_IMPORT: u16 = 0x0003;
 
-// 数据面 URB 命令
 const CMD_SUBMIT: u32 = 0x0001;
 const CMD_UNLINK: u32 = 0x0002;
 const RET_SUBMIT: u32 = 0x0003;
 const RET_UNLINK: u32 = 0x0004;
 
-// direction
 const DIR_OUT: u32 = 0;
 const DIR_IN: u32 = 1;
 
-// wire 上的 errno（status 字段为 i32 大端）
+/// wire 上的 errno（status 字段为 i32 大端）
 const EIO: i32 = 5;
 const EPIPE: i32 = 32; // 复用为 USB STALL
 
@@ -42,10 +32,7 @@ const HEADER_LEN: usize = 48;
 /// 启动 USB/IP 服务器。每个 IMPORT 会话独享一条到 ESP32 的链路。
 pub async fn serve(addr: &str, target: &str) -> Result<(), Box<dyn Error>> {
     let listener = TcpListener::bind(addr).await?;
-    tracing::info!(
-        "等待 USB/IP 客户端 attach（busid {}）…",
-        descriptors::USBIP_BUSID
-    );
+    tracing::info!("等待 USB/IP 客户端 attach（busid {}）…", descriptors::USBIP_BUSID);
     loop {
         let (stream, peer) = listener.accept().await?;
         let target = target.to_string();
@@ -82,7 +69,6 @@ async fn handle_connection(
                 if !reply_import(&mut stream).await? {
                     return Ok(()); // busid 不匹配，握手失败
                 }
-                // IMPORT 成功后进入 URB 循环，直到连接断开
                 return urb_loop(&mut stream, DapBridge::new(target)).await;
             }
             _ => {
@@ -105,8 +91,7 @@ async fn reply_devlist(stream: &mut TcpStream) -> Result<(), Box<dyn Error + Sen
     r.extend_from_slice(&0u32.to_be_bytes()); // status
     r.extend_from_slice(&1u32.to_be_bytes()); // 导出设备数
     push_device_body(&mut r);
-    // 接口列表（bNumInterfaces = 1）：
-    // bInterfaceClass / bInterfaceSubClass / bInterfaceProtocol / padding
+    // 接口列表：bInterfaceClass / SubClass / Protocol / padding
     r.extend_from_slice(&[0xFF, 0x00, 0x00, 0x00]);
     stream.write_all(&r).await?;
     stream.flush().await?;
@@ -136,7 +121,7 @@ async fn reply_import(stream: &mut TcpStream) -> Result<bool, Box<dyn Error + Se
     }
 
     tracing::info!("OP_REQ_IMPORT → 握手成功，进入 URB 循环");
-    metrics::USB_SESSIONS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    metrics::bump(&metrics::USB_SESSIONS);
     r.extend_from_slice(&0u32.to_be_bytes()); // status OK
     push_device_body(&mut r);
     stream.write_all(&r).await?;
@@ -189,9 +174,7 @@ async fn urb_loop(
 
         match command {
             CMD_SUBMIT => {
-                // OUT 方向先读走数据载荷（含 EP0 控制传输的数据阶段），
-                // 否则 TCP 流会永久失调 —— 修复原实现中 SET_REPORT 类请求
-                // 会把后续所有包解析错位的隐藏 bug。
+                // OUT 方向先读走数据载荷（含 EP0 的数据阶段），保持流同步
                 let mut out_data = Vec::new();
                 if direction == DIR_OUT && transfer_len > 0 {
                     out_data.resize(transfer_len as usize, 0);
@@ -202,28 +185,33 @@ async fn urb_loop(
 
                 let (status, in_data) = match (ep, direction) {
                     (0, _) => {
-                        metrics::EP0_REQUESTS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        metrics::bump(&metrics::EP0_REQUESTS);
                         ep0_control(&hdr[40..48], &out_data)
                     }
-                    (_, DIR_OUT) => match bridge.bulk_out(&out_data).await {
-                        Ok(()) => {
-                            metrics::EP1_OUT_FRAMES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                            metrics::EP1_OUT_BYTES
-                                .fetch_add(out_data.len() as u64, std::sync::atomic::Ordering::Relaxed);
-                            (0, Vec::new())
-                        },
-                        Err(e) => {
-                            tracing::warn!("EP1 OUT 转发失败: {e}");
-                            (EIO, Vec::new())
+                    (_, DIR_OUT) => {
+                        tracing::debug!(
+                            "EP1 OUT ← DAP 命令 0x{:02X}（{} 字节）",
+                            out_data.first().copied().unwrap_or(0),
+                            out_data.len()
+                        );
+                        match bridge.bulk_out(&out_data).await {
+                            Ok(()) => {
+                                metrics::bump(&metrics::EP1_OUT_FRAMES);
+                                metrics::add(&metrics::EP1_OUT_BYTES, out_data.len() as u64);
+                                (0, Vec::new())
+                            }
+                            Err(e) => {
+                                tracing::warn!("EP1 OUT 转发失败: {e}");
+                                (EIO, Vec::new())
+                            }
                         }
-                    },
+                    }
                     (_, DIR_IN) => match bridge.bulk_in(transfer_len as usize).await {
                         Ok(data) => {
-                            metrics::EP1_IN_FRAMES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                            metrics::EP1_IN_BYTES
-                                .fetch_add(data.len() as u64, std::sync::atomic::Ordering::Relaxed);
+                            metrics::bump(&metrics::EP1_IN_FRAMES);
+                            metrics::add(&metrics::EP1_IN_BYTES, data.len() as u64);
                             tracing::debug!(
-                                "EP1 IN → DAP 响应 0x{:02X}（{} 字节）{}",
+                                "EP1 IN → DAP 响应 0x{:02X}({} 字节){}",
                                 data.first().copied().unwrap_or(0),
                                 data.len(),
                                 describe_dap_status(&data)
@@ -237,20 +225,11 @@ async fn urb_loop(
                     },
                     _ => (EPIPE, Vec::new()),
                 };
-                if ep != 0 && direction == DIR_OUT {
-                    tracing::debug!(
-                        "EP1 OUT ← DAP 命令 0x{:02X}（{} 字节）",
-                        out_data.first().copied().unwrap_or(0),
-                        out_data.len()
-                    );
-                }
                 send_ret_submit(stream, seqnum, status, &in_data).await?;
             }
             CMD_UNLINK => {
-                // hdr[20..24] 为 unlink_seqnum。本服务器严格串行处理 URB：
-                // 能走到这里的 SUBMIT 都已回复过 RET_SUBMIT，因此按内核规范
-                // 回 RET_UNLINK 且 status = 0（unlink 发生在 completion 之后）。
-                // 原实现回 RET_SUBMIT 会让内核的 vhci 状态机错乱。
+                // 严格串行处理：能走到这里的 SUBMIT 均已回复过 RET_SUBMIT，
+                // 故按内核规范回 RET_UNLINK 且 status = 0。
                 let unlink_seqnum = u32::from_be_bytes(hdr[20..24].try_into().unwrap());
                 tracing::debug!("CMD_UNLINK: unlink_seqnum={unlink_seqnum}");
                 send_ret_unlink(stream, seqnum).await?;
@@ -269,25 +248,22 @@ async fn urb_loop(
 
 /// EP0 控制传输处理。返回 (URB status, 返回数据)。
 ///
-/// `out_data` 为 OUT 方向控制传输的数据阶段载荷（当前未使用控制端点通道，
-/// 数据仅被消费以保持流同步；未来 CMSIS-DAP v2 的 SET_REPORT 通道在此接入）。
+/// `out_data` 为 OUT 控制传输的数据阶段载荷，仅消费以保持流同步；
+/// CMSIS-DAP v2 的 SET_REPORT 控制通道未来在此接入。
 fn ep0_control(setup: &[u8], _out_data: &[u8]) -> (i32, Vec<u8>) {
     let bm_request_type = setup[0];
     let b_request = setup[1];
     let w_value = u16::from_le_bytes([setup[2], setup[3]]);
-    let _w_index = u16::from_le_bytes([setup[4], setup[5]]);
     let w_length = u16::from_le_bytes([setup[6], setup[7]]);
 
     if bm_request_type & 0x80 != 0 {
-        // IN 方向：标准读请求
         let payload: Option<Vec<u8>> = match (bm_request_type, b_request, w_value >> 8, w_value & 0xFF) {
-            (0x80, 0x00, _, _) => Some(vec![0x00, 0x00]), // GET_STATUS: 总线供电、无远程唤醒
+            (0x80, 0x00, _, _) => Some(vec![0x00, 0x00]), // GET_STATUS
             (0x80, 0x06, 0x01, _) => Some(descriptors::DEVICE_DESCRIPTOR.to_vec()),
             (0x80, 0x06, 0x02, _) => Some(descriptors::CONFIG_DESCRIPTOR.to_vec()),
             (0x80, 0x06, 0x03, index) => descriptors::string_descriptor(index as u8),
             (0x80, 0x08, _, _) => Some(vec![0x01]), // GET_CONFIGURATION
-            (0x81, 0x00, _, _) => Some(vec![0x00, 0x00]), // GET_STATUS(interface)
-            (0x82, 0x00, _, _) => Some(vec![0x00, 0x00]), // GET_STATUS(endpoint)
+            (0x81, 0x00, _, _) | (0x82, 0x00, _, _) => Some(vec![0x00, 0x00]), // GET_STATUS(interface/endpoint)
             (0x80, 0x0A, _, _) => Some(vec![0x00]), // GET_INTERFACE
             _ => None,
         };
@@ -302,17 +278,11 @@ fn ep0_control(setup: &[u8], _out_data: &[u8]) -> (i32, Vec<u8>) {
 
     // OUT 方向（SET_*）：标准写请求一律 ACK，其余 STALL
     match b_request {
-        0x01 | 0x03 | 0x09 | 0x0B => (0, Vec::new()), // CLEAR/SET_FEATURE、SET_CONFIGURATION/SET_INTERFACE
+        0x01 | 0x03 | 0x09 | 0x0B => (0, Vec::new()),
         _ => (EPIPE, Vec::new()),
     }
 }
 
-// ---------------------------------------------------------------------------
-// 调试辅助
-// ---------------------------------------------------------------------------
-
-/// 从 DAP_Transfer(0x05) / DAP_TransferBlock(0x06) 响应中提取传输计数与状态
-/// 字节，用于 debug 日志。状态位：0x01=OK 0x02=WAIT 0x04=FAULT 0x08=协议错误。
 fn describe_dap_status(data: &[u8]) -> String {
     match data.first() {
         Some(0x05) if data.len() >= 3 => format!(" count={} status=0x{:02X}", data[1], data[2]),
@@ -340,7 +310,7 @@ async fn send_ret_submit(
     r.extend_from_slice(&0u32.to_be_bytes()); // devid（server 侧置 0）
     r.extend_from_slice(&0u32.to_be_bytes()); // direction
     r.extend_from_slice(&0u32.to_be_bytes()); // ep
-    r.extend_from_slice(&status.to_be_bytes()); // status
+    r.extend_from_slice(&status.to_be_bytes());
     r.extend_from_slice(&(data.len() as u32).to_be_bytes()); // actual_length
     r.extend_from_slice(&0u32.to_be_bytes()); // start_frame
     r.extend_from_slice(&0u32.to_be_bytes()); // number_of_packets
@@ -362,7 +332,7 @@ async fn send_ret_unlink(
     r.extend_from_slice(&0u32.to_be_bytes()); // devid
     r.extend_from_slice(&0u32.to_be_bytes()); // direction
     r.extend_from_slice(&0u32.to_be_bytes()); // ep
-    r.extend_from_slice(&0i32.to_be_bytes()); // status: completion 之后 unlink → 0
+    r.extend_from_slice(&0i32.to_be_bytes()); // status
     r.extend_from_slice(&[0u8; 24]); // padding
     stream.write_all(&r).await?;
     stream.flush().await?;

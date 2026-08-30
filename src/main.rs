@@ -1,29 +1,3 @@
-//! esp-daplink-host
-//!
-//! 在 PC 上把 WiFi 另一端的 ESP32-C3 模拟成一个真实的 USB CMSIS-DAP v2 探头：
-//!
-//! ```text
-//! OpenOCD / PyOCD / probe-rs
-//!   │  USB/IP（内核虚拟 HCD，默认端口 3240）
-//!   ▼
-//! esp-daplink-host（本项目）
-//!   │  0xDA 帧协议（WiFi TCP）
-//!   ▼
-//! esp-daplink-target（ESP32-C3）── bit-bang SWD ──▶ 被调试芯片
-//! ```
-//!
-//! 模块划分：
-//! - `usbip`       USB/IP 协议层：OP 握手 + URB 循环。纯协议，不感知 ESP32 细节
-//! - `descriptors` 虚拟 USB 设备的描述符，devlist / import / EP0 共用的唯一事实来源
-//! - `bridge`      桥接层：把 bulk EP1 语义（OUT=请求 / IN=响应）映射到链路
-//! - `link`        与 ESP32 的 0xDA 帧协议链路：连接、重连、超时、keepalive
-//! - `web`         内置控制台：仪表盘 + 实时日志（SSE）
-//! - `logs`/`metrics` 日志中枢与指标计数器，供控制台消费
-//!
-//! 后续规划（架构已预留位置）：
-//! - `scanner/`    ESP32 在线扫描（UDP 广播发现）
-//! - `config`      ESP32 模式配置、目标地址簿
-
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 mod bridge;
@@ -64,7 +38,7 @@ esp-daplink-host — 虚拟 USB CMSIS-DAP v2 探头（USB/IP 服务器）
 impl Args {
     fn parse<I: Iterator<Item = String>>(mut it: I) -> Result<Self, String> {
         let mut listen = "0.0.0.0:3240".to_string();
-        let mut target = "192.168.137.96:8080".to_string();
+        let mut target = "192.168.137.151:8080".to_string();
         let mut web = "127.0.0.1:3241".to_string();
         while let Some(arg) = it.next() {
             match arg.as_str() {

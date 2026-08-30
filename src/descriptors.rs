@@ -1,10 +1,4 @@
-//! 虚拟 USB 设备的描述符 —— devlist / OP_REP_IMPORT / EP0 控制传输共用的唯一事实来源。
-//!
-//! 形态为 CMSIS-DAP v2：厂商自定义接口（class 0xFF）+ 一对 bulk 端点。
-//! OpenOCD / PyOCD / probe-rs 依据「接口类 0xFF + 双 bulk EP」识别 v2 探头。
-
-/// 设备路径（USB/IP 导出用）
-pub const USBIP_PATH: &str = "/sys/v_cmsisdap";
+ub const USBIP_PATH: &str = "/sys/v_cmsisdap";
 /// 总线 ID（USB/IP attach 时的 busid）
 pub const USBIP_BUSID: &str = "1-1";
 

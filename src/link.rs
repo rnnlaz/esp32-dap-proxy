@@ -1,13 +1,3 @@
-//! 与 ESP32 目标端的 0xDA 帧协议链路。
-//!
-//! 帧格式与 esp-daplink-target/src/channel/frame.rs 严格对齐：
-//!
-//! ```text
-//! [0xDA][len_lo][len_hi][payload]     len 为小端 u16
-//! ```
-//!
-//! 本端是 std 环境：按需连接、断线自动重连、读写带超时。
-
 use std::fmt;
 use std::time::Duration;
 
@@ -15,6 +5,8 @@ use socket2::{Socket, TcpKeepalive};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::time;
+
+use crate::metrics;
 
 /// 帧载荷上限。target 侧 Deframer 为 1024，这里留出余量做防御。
 const MAX_FRAME: usize = 4096;
@@ -63,9 +55,7 @@ impl DapLink {
         Self {
             addr: addr.into(),
             stream: None,
-            // probe-rs 的 USB 超时是 1s：我们必须比它更快失败、更快恢复，
-            // 否则一次 WiFi 抖动会叠加成数秒的会话阻塞。正常命令往返
-            // （含 DAP_Connect 上电轮询 ~100ms）远低于下述上限。
+            // 上限须低于宿主侧 USB 超时（1s），保证故障先于会话中断暴露。
             read_timeout: Duration::from_secs(2),
             write_timeout: Duration::from_secs(1),
         }
@@ -89,19 +79,15 @@ impl DapLink {
             .map_err(LinkError::Io)?;
         let _ = stream.set_nodelay(true);
 
-        // 通过 socket2 设置 TCP keepalive 参数：
-        // 空闲期保持 NAT/AP 路径温热，并尽早发现死链路。
+        // 空闲期保持路径温热，并尽早发现死链路
         let std_stream = stream.into_std().map_err(LinkError::Io)?;
         let socket = Socket::from(std_stream);
-
         let keepalive = TcpKeepalive::new()
             .with_time(Duration::from_secs(10))
             .with_interval(Duration::from_secs(5));
-
         let _ = socket.set_tcp_keepalive(&keepalive);
 
-        let std_stream: std::net::TcpStream = socket.into();
-        let stream = TcpStream::from_std(std_stream).map_err(LinkError::Io)?;
+        let stream = TcpStream::from_std(socket.into()).map_err(LinkError::Io)?;
 
         tracing::info!("[link:{}] 已连接 ESP32 DAP 通道", self.addr);
         self.stream = Some(stream);
@@ -146,23 +132,22 @@ impl DapLink {
         if payload.len() > MAX_FRAME {
             return Err(LinkError::FrameTooLarge(payload.len()));
         }
-        crate::metrics::LINK_REQUESTS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        metrics::bump(&metrics::LINK_REQUESTS);
         let t0 = std::time::Instant::now();
         let err = match self.try_request(payload).await {
             Ok(resp) => {
-                crate::metrics::note_rtt(t0.elapsed().as_micros() as u64);
+                metrics::note_rtt(t0.elapsed().as_micros() as u64);
                 return Ok(resp);
             }
             Err(e) => e,
         };
         tracing::warn!("[link:{}] 请求失败（{err}），重连后重试一次", self.addr);
-        crate::metrics::LINK_RETRIES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        metrics::bump(&metrics::LINK_RETRIES);
         self.disconnect();
-        // 重连失败时，把 connect 的错误报出来更有诊断价值
         self.connect().await?;
         let result = self.try_request(payload).await;
         if let Err(e) = &result {
-            crate::metrics::note_link_error(e.to_string());
+            metrics::note_link_error(e.to_string());
         }
         result
     }
