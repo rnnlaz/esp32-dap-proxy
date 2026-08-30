@@ -1,0 +1,6 @@
+[workspace]
+resolver = "2"
+members = [
+    "esp-daplink-host",
+    "esp-daplink-target",
+]
