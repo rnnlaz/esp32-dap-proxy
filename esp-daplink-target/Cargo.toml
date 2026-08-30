@@ -1,0 +1,44 @@
+[package]
+edition      = "2024"
+name         = "esp-daplink-target"
+rust-version = "1.88"
+version      = "0.1.0"
+
+[[bin]]
+name = "esp-daplink-target"
+path = "./src/main.rs"
+
+[dependencies]
+esp-hal = { git = "https://github.com/esp-rs/esp-hal", branch = "main", features = ["esp32c3", "unstable"] }
+esp-radio = { git = "https://github.com/esp-rs/esp-hal", branch = "main", features = ["esp32c3", "wifi", "ble", "unstable"] }
+esp-bootloader-esp-idf = { git = "https://github.com/esp-rs/esp-hal", branch = "main", features = ["esp32c3"] }
+esp-println = { git = "https://github.com/esp-rs/esp-hal", branch = "main", features = ["esp32c3"] }
+esp-alloc = { git = "https://github.com/esp-rs/esp-hal", branch = "main", features = ["esp32c3"] }
+esp-rtos = { git = "https://github.com/esp-rs/esp-hal", branch = "main", features = ["esp32c3", "embassy", "esp-radio", "esp-alloc"] }
+
+critical-section = "1.2.0"
+embedded-hal = "1.0.0"
+embassy-executor = "0.10.0"
+embassy-net = { version = "0.9.1", features = ["dhcpv4", "dns", "medium-ethernet", "proto-ipv4", "tcp"] }
+static_cell = "2.1.1"
+embassy-time = "0.5.1"
+embassy-futures = "0.1.2"
+embedded-io-async = "0.7.0"
+
+# For fine tuning these settings, please refer to https://doc.rust-lang.org/cargo/reference/profiles.html
+[profile.dev]
+# The default debug profile is too slow and too big for resource-constrained devices.
+# Always build with some optimizations enabled.
+opt-level = 's'
+
+[profile.dev.package.esp-radio]
+opt-level = 3
+
+[profile.release]
+codegen-units = 1     # LLVM can perform better optimizations using a single thread
+debug         = 2     # prefer slower builds but better debugging experience
+lto           = 'fat'
+opt-level     = 's'
+
+[build-dependencies]
+dotenvy = "0.15.7"
