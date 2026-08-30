@@ -1,4 +1,4 @@
-ub const USBIP_PATH: &str = "/sys/v_cmsisdap";
+pub const USBIP_PATH: &str = "/sys/v_cmsisdap";
 /// 总线 ID（USB/IP attach 时的 busid）
 pub const USBIP_BUSID: &str = "1-1";
 
