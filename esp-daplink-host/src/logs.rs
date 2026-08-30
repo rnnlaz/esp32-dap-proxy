@@ -1,9 +1,3 @@
-//! 控制台日志中枢：截获 tracing 事件 → 环形缓冲（历史）+ 广播通道（实时 SSE）。
-//!
-//! `HubLayer` 挂在 tracing_subscriber 的 registry 上，与终端 fmt 输出并行，
-//! 不改变原有日志行为。Web 控制台通过 `/api/logs/history` + `/api/logs/stream`
-//! 消费。
-
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -19,9 +13,7 @@ const CHANNEL_CAPACITY: usize = 1024;
 
 #[derive(Serialize, Clone)]
 pub struct LogEvent {
-    /// 单调递增序号，前端用它去重（history + 实时流衔接处）
     pub seq: u64,
-    /// 自进程启动起的秒数
     pub ts: f64,
     pub level: String,
     pub target: String,
@@ -37,7 +29,6 @@ static HUB: OnceLock<Hub> = OnceLock::new();
 static SEQ: AtomicU64 = AtomicU64::new(0);
 static START: OnceLock<std::time::Instant> = OnceLock::new();
 
-/// 必须在 tracing 初始化之前调用。
 pub fn init() {
     let (tx, _) = broadcast::channel(CHANNEL_CAPACITY);
     let _ = HUB.set(Hub {
@@ -49,7 +40,10 @@ pub fn init() {
 
 fn publish(level: &str, target: &str, message: String) {
     let Some(hub) = HUB.get() else { return };
-    let ts = START.get().map(|t| t.elapsed().as_secs_f64()).unwrap_or(0.0);
+    let ts = START
+        .get()
+        .map(|t| t.elapsed().as_secs_f64())
+        .unwrap_or(0.0);
     let ev = Arc::new(LogEvent {
         seq: SEQ.fetch_add(1, Ordering::Relaxed),
         ts,
@@ -66,7 +60,6 @@ fn publish(level: &str, target: &str, message: String) {
     let _ = hub.tx.send(ev);
 }
 
-/// 启动以来的历史日志（最多 RING_CAPACITY 条）。
 pub fn history() -> Vec<Arc<LogEvent>> {
     HUB.get()
         .and_then(|h| {
@@ -78,7 +71,6 @@ pub fn history() -> Vec<Arc<LogEvent>> {
         .unwrap_or_default()
 }
 
-/// 订阅实时日志流。
 pub fn subscribe() -> broadcast::Receiver<Arc<LogEvent>> {
     HUB.get()
         .expect("logs::init() must be called before subscribe()")
@@ -86,7 +78,6 @@ pub fn subscribe() -> broadcast::Receiver<Arc<LogEvent>> {
         .subscribe()
 }
 
-/// 把 tracing 事件克隆一份投递给 Web 控制台的 Layer。
 pub struct HubLayer;
 
 struct FieldCollector {
@@ -99,7 +90,8 @@ impl Visit for FieldCollector {
         if field.name() == "message" {
             self.message = format!("{value:?}");
         } else {
-            self.extra.push((field.name().to_string(), format!("{value:?}")));
+            self.extra
+                .push((field.name().to_string(), format!("{value:?}")));
         }
     }
 
@@ -107,7 +99,8 @@ impl Visit for FieldCollector {
         if field.name() == "message" {
             self.message = value.to_string();
         } else {
-            self.extra.push((field.name().to_string(), value.to_string()));
+            self.extra
+                .push((field.name().to_string(), value.to_string()));
         }
     }
 }
@@ -126,6 +119,10 @@ impl<S: Subscriber> Layer<S> for HubLayer {
             }
             v.message.pop();
         }
-        publish(event.metadata().level().to_string().as_str(), event.metadata().target(), v.message);
+        publish(
+            event.metadata().level().to_string().as_str(),
+            event.metadata().target(),
+            v.message,
+        );
     }
 }

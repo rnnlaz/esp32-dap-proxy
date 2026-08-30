@@ -22,17 +22,18 @@ const RET_UNLINK: u32 = 0x0004;
 const DIR_OUT: u32 = 0;
 const DIR_IN: u32 = 1;
 
-/// wire 上的 errno（status 字段为 i32 大端）
 const EIO: i32 = 5;
-const EPIPE: i32 = 32; // 复用为 USB STALL
+const EPIPE: i32 = 32;
 
 /// CMD_SUBMIT / CMD_UNLINK / RET_SUBMIT / RET_UNLINK 通用头长
 const HEADER_LEN: usize = 48;
 
-/// 启动 USB/IP 服务器。每个 IMPORT 会话独享一条到 ESP32 的链路。
 pub async fn serve(addr: &str, target: &str) -> Result<(), Box<dyn Error>> {
     let listener = TcpListener::bind(addr).await?;
-    tracing::info!("等待 USB/IP 客户端 attach（busid {}）…", descriptors::USBIP_BUSID);
+    tracing::info!(
+        "等待 USB/IP 客户端 attach（busid {}）…",
+        descriptors::USBIP_BUSID
+    );
     loop {
         let (stream, peer) = listener.accept().await?;
         let target = target.to_string();
@@ -53,7 +54,7 @@ async fn handle_connection(
     let mut head = [0u8; 8];
     loop {
         if stream.read_exact(&mut head).await.is_err() {
-            return Ok(()); // 客户端正常关闭
+            return Ok(());
         }
         let version = u16::from_be_bytes([head[0], head[1]]);
         let command = u16::from_be_bytes([head[2], head[3]]);
@@ -67,7 +68,7 @@ async fn handle_connection(
             OP_REQ_DEVLIST => reply_devlist(&mut stream).await?,
             OP_REQ_IMPORT => {
                 if !reply_import(&mut stream).await? {
-                    return Ok(()); // busid 不匹配，握手失败
+                    return Ok(());
                 }
                 return urb_loop(&mut stream, DapBridge::new(target)).await;
             }
@@ -79,10 +80,6 @@ async fn handle_connection(
     }
 }
 
-// ---------------------------------------------------------------------------
-// 控制面：DEVLIST / IMPORT
-// ---------------------------------------------------------------------------
-
 async fn reply_devlist(stream: &mut TcpStream) -> Result<(), Box<dyn Error + Send + Sync>> {
     tracing::info!("OP_REQ_DEVLIST → 导出虚拟 CMSIS-DAP v2");
     let mut r = Vec::with_capacity(0x148);
@@ -91,15 +88,12 @@ async fn reply_devlist(stream: &mut TcpStream) -> Result<(), Box<dyn Error + Sen
     r.extend_from_slice(&0u32.to_be_bytes()); // status
     r.extend_from_slice(&1u32.to_be_bytes()); // 导出设备数
     push_device_body(&mut r);
-    // 接口列表：bInterfaceClass / SubClass / Protocol / padding
     r.extend_from_slice(&[0xFF, 0x00, 0x00, 0x00]);
     stream.write_all(&r).await?;
     stream.flush().await?;
     Ok(())
 }
 
-/// OP_REP_IMPORT 的设备描述体（DEVLIST / IMPORT 共用）。
-/// 返回 Ok(false) 表示 busid 不匹配。
 async fn reply_import(stream: &mut TcpStream) -> Result<bool, Box<dyn Error + Send + Sync>> {
     let mut busid = [0u8; 32];
     stream.read_exact(&mut busid).await?;
@@ -115,21 +109,20 @@ async fn reply_import(stream: &mut TcpStream) -> Result<bool, Box<dyn Error + Se
             "OP_REQ_IMPORT 目标 busid 不匹配: {busid:?}（期望 {:?}）",
             descriptors::USBIP_BUSID
         );
-        r.extend_from_slice(&1u32.to_be_bytes()); // status = 1 表示失败
+        r.extend_from_slice(&1u32.to_be_bytes());
         stream.write_all(&r).await?;
         return Ok(false);
     }
 
     tracing::info!("OP_REQ_IMPORT → 握手成功，进入 URB 循环");
     metrics::bump(&metrics::USB_SESSIONS);
-    r.extend_from_slice(&0u32.to_be_bytes()); // status OK
+    r.extend_from_slice(&0u32.to_be_bytes());
     push_device_body(&mut r);
     stream.write_all(&r).await?;
     stream.flush().await?;
     Ok(true)
 }
 
-/// 追加设备描述体：path(256) + busid(32) + busnum/devnum/speed + IDs + 类字节。
 fn push_device_body(buf: &mut Vec<u8>) {
     let mut path = [0u8; 256];
     path[..descriptors::USBIP_PATH.len()].copy_from_slice(descriptors::USBIP_PATH.as_bytes());
@@ -145,17 +138,13 @@ fn push_device_body(buf: &mut Vec<u8>) {
     buf.extend_from_slice(&descriptors::VID.to_be_bytes());
     buf.extend_from_slice(&descriptors::PID.to_be_bytes());
     buf.extend_from_slice(&descriptors::BCD_DEVICE.to_be_bytes());
-    buf.push(0x00); // bDeviceClass（在接口级声明，设备级为 0）
+    buf.push(0x00); // bDeviceClass
     buf.push(0x00); // bDeviceSubClass
     buf.push(0x00); // bDeviceProtocol
     buf.push(0x01); // bConfigurationValue
     buf.push(0x01); // bNumConfigurations
     buf.push(0x01); // bNumInterfaces
 }
-
-// ---------------------------------------------------------------------------
-// 数据面：URB 循环
-// ---------------------------------------------------------------------------
 
 async fn urb_loop(
     stream: &mut TcpStream,
@@ -174,7 +163,7 @@ async fn urb_loop(
 
         match command {
             CMD_SUBMIT => {
-                // OUT 方向先读走数据载荷（含 EP0 的数据阶段），保持流同步
+                // 先读保持流同步
                 let mut out_data = Vec::new();
                 if direction == DIR_OUT && transfer_len > 0 {
                     out_data.resize(transfer_len as usize, 0);
@@ -228,8 +217,6 @@ async fn urb_loop(
                 send_ret_submit(stream, seqnum, status, &in_data).await?;
             }
             CMD_UNLINK => {
-                // 严格串行处理：能走到这里的 SUBMIT 均已回复过 RET_SUBMIT，
-                // 故按内核规范回 RET_UNLINK 且 status = 0。
                 let unlink_seqnum = u32::from_be_bytes(hdr[20..24].try_into().unwrap());
                 tracing::debug!("CMD_UNLINK: unlink_seqnum={unlink_seqnum}");
                 send_ret_unlink(stream, seqnum).await?;
@@ -242,14 +229,6 @@ async fn urb_loop(
     }
 }
 
-// ---------------------------------------------------------------------------
-// EP0 控制传输
-// ---------------------------------------------------------------------------
-
-/// EP0 控制传输处理。返回 (URB status, 返回数据)。
-///
-/// `out_data` 为 OUT 控制传输的数据阶段载荷，仅消费以保持流同步；
-/// CMSIS-DAP v2 的 SET_REPORT 控制通道未来在此接入。
 fn ep0_control(setup: &[u8], _out_data: &[u8]) -> (i32, Vec<u8>) {
     let bm_request_type = setup[0];
     let b_request = setup[1];
@@ -257,26 +236,26 @@ fn ep0_control(setup: &[u8], _out_data: &[u8]) -> (i32, Vec<u8>) {
     let w_length = u16::from_le_bytes([setup[6], setup[7]]);
 
     if bm_request_type & 0x80 != 0 {
-        let payload: Option<Vec<u8>> = match (bm_request_type, b_request, w_value >> 8, w_value & 0xFF) {
-            (0x80, 0x00, _, _) => Some(vec![0x00, 0x00]), // GET_STATUS
-            (0x80, 0x06, 0x01, _) => Some(descriptors::DEVICE_DESCRIPTOR.to_vec()),
-            (0x80, 0x06, 0x02, _) => Some(descriptors::CONFIG_DESCRIPTOR.to_vec()),
-            (0x80, 0x06, 0x03, index) => descriptors::string_descriptor(index as u8),
-            (0x80, 0x08, _, _) => Some(vec![0x01]), // GET_CONFIGURATION
-            (0x81, 0x00, _, _) | (0x82, 0x00, _, _) => Some(vec![0x00, 0x00]), // GET_STATUS(interface/endpoint)
-            (0x80, 0x0A, _, _) => Some(vec![0x00]), // GET_INTERFACE
-            _ => None,
-        };
+        let payload: Option<Vec<u8>> =
+            match (bm_request_type, b_request, w_value >> 8, w_value & 0xFF) {
+                (0x80, 0x00, _, _) => Some(vec![0x00, 0x00]), // GET_STATUS
+                (0x80, 0x06, 0x01, _) => Some(descriptors::DEVICE_DESCRIPTOR.to_vec()),
+                (0x80, 0x06, 0x02, _) => Some(descriptors::CONFIG_DESCRIPTOR.to_vec()),
+                (0x80, 0x06, 0x03, index) => descriptors::string_descriptor(index as u8),
+                (0x80, 0x08, _, _) => Some(vec![0x01]), // GET_CONFIGURATION
+                (0x81, 0x00, _, _) | (0x82, 0x00, _, _) => Some(vec![0x00, 0x00]), // GET_STATUS(interface/endpoint)
+                (0x80, 0x0A, _, _) => Some(vec![0x00]),                            // GET_INTERFACE
+                _ => None,
+            };
         return match payload {
             Some(p) => {
                 let n = p.len().min(w_length as usize);
                 (0, p[..n].to_vec())
             }
-            None => (EPIPE, Vec::new()), // 未知请求：STALL
+            None => (EPIPE, Vec::new()),
         };
     }
 
-    // OUT 方向（SET_*）：标准写请求一律 ACK，其余 STALL
     match b_request {
         0x01 | 0x03 | 0x09 | 0x0B => (0, Vec::new()),
         _ => (EPIPE, Vec::new()),
@@ -294,10 +273,6 @@ fn describe_dap_status(data: &[u8]) -> String {
     }
 }
 
-// ---------------------------------------------------------------------------
-// RET 包发送
-// ---------------------------------------------------------------------------
-
 async fn send_ret_submit(
     stream: &mut TcpStream,
     seqnum: u32,
@@ -307,7 +282,7 @@ async fn send_ret_submit(
     let mut r = Vec::with_capacity(HEADER_LEN + data.len());
     r.extend_from_slice(&RET_SUBMIT.to_be_bytes());
     r.extend_from_slice(&seqnum.to_be_bytes());
-    r.extend_from_slice(&0u32.to_be_bytes()); // devid（server 侧置 0）
+    r.extend_from_slice(&0u32.to_be_bytes()); // devid
     r.extend_from_slice(&0u32.to_be_bytes()); // direction
     r.extend_from_slice(&0u32.to_be_bytes()); // ep
     r.extend_from_slice(&status.to_be_bytes());

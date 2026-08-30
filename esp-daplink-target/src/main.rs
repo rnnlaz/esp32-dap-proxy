@@ -7,25 +7,23 @@
 )]
 #![deny(clippy::large_stack_frames)]
 
-use embassy_futures::select::Either;
-use embassy_time::{Duration, Timer};
 use embassy_executor::Spawner;
-use embassy_net::{
-    Runner,
-    StackResources,
-};
+use embassy_futures::select::Either;
+use embassy_net::{Runner, StackResources};
+use embassy_time::{Duration, Timer};
 
 use esp_hal::{
     clock::CpuClock,
     gpio::{Flex, Level, Output, OutputConfig},
     ram,
-    timer::timg::TimerGroup,
     rng::Rng,
+    timer::timg::TimerGroup,
 };
 
 use esp_println::println;
 use esp_radio::wifi::{
-    AuthenticationMethodConfig, Config, ControllerConfig, Interface, WifiController, sta::StationConfig,
+    AuthenticationMethodConfig, Config, ControllerConfig, Interface, WifiController,
+    sta::StationConfig,
 };
 
 use crate::channel::tcp::TcpChannel;
@@ -47,9 +45,9 @@ macro_rules! mk_static {
     }};
 }
 
-mod probe;
 mod channel;
 mod cmd;
+mod probe;
 
 // This creates a default app-descriptor required by the esp-idf bootloader.
 // For more information see: <https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/app_image_format.html#application-description>
@@ -66,7 +64,6 @@ const DAP_PORT: u16 = 8080;
 )]
 #[esp_hal::main]
 async fn main(spawner: Spawner) -> ! {
-
     let config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
     let peripherals = esp_hal::init(config);
 

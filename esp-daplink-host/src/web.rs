@@ -1,11 +1,3 @@
-//! 内置 Web 控制台：axum + 单页静态面板（零构建）。
-//!
-//! 端点：
-//! - `GET /`                  仪表盘页面
-//! - `GET /api/status`        指标 JSON（前端 2s 轮询）
-//! - `GET /api/logs/history`  历史日志（环形缓冲）
-//! - `GET /api/logs/stream`   实时日志 SSE 流
-
 use std::convert::Infallible;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
@@ -16,8 +8,8 @@ use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::routing::get;
 use axum::{Json, Router};
 use serde::Serialize;
-use tokio_stream::wrappers::BroadcastStream;
 use tokio_stream::StreamExt;
+use tokio_stream::wrappers::BroadcastStream;
 
 use crate::logs::{self, LogEvent};
 use crate::metrics;

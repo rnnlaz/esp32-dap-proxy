@@ -8,7 +8,6 @@ mod metrics;
 mod usbip;
 mod web;
 
-/// 命令行参数（零依赖手写解析，未来并入 config 模块）。
 #[derive(Debug, Clone)]
 struct Args {
     /// USB/IP 监听地址
@@ -49,7 +48,11 @@ impl Args {
                 other => return Err(format!("未知参数: {other}\n\n{USAGE}")),
             }
         }
-        Ok(Self { listen, target, web })
+        Ok(Self {
+            listen,
+            target,
+            web,
+        })
     }
 }
 
@@ -63,7 +66,6 @@ async fn main() {
         }
     };
 
-    // 日志中枢要在 tracing 初始化之前就绪
     logs::init();
     metrics::mark_start();
 

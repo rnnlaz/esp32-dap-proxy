@@ -14,7 +14,7 @@ impl<'a> BitBangIo<'a> {
 
     pub fn new(mut swclk: Output<'a>, mut swdio: Flex<'a>, delay: Option<u32>) -> Self {
         let out_cfg = OutputConfig::default()
-        // 建议用开漏加外部上拉电阻
+            // 建议用开漏加外部上拉电阻
             .with_drive_mode(DriveMode::PushPull)
             .with_pull(Pull::Up);
         let in_cfg = InputConfig::default().with_pull(Pull::Up);
@@ -43,7 +43,7 @@ impl<'a> BitBangIo<'a> {
         reset.set_high();
         self.reset = Some(reset);
         self
-    }    
+    }
 
     fn nop_delay(&self) {
         for _ in 0..self.delay {

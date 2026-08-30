@@ -32,7 +32,11 @@ pub struct Dap<'a, T: Transport> {
 
 impl<'a, T: Transport> Dap<'a, T> {
     pub fn new(transport: &'a mut T) -> Self {
-        Self { transport, wait_retry: 64, err_logs: 0 }
+        Self {
+            transport,
+            wait_retry: 64,
+            err_logs: 0,
+        }
     }
 
     pub fn handle(&mut self, req: &[u8], resp: &mut [u8]) -> usize {
@@ -121,7 +125,10 @@ impl<'a, T: Transport> Dap<'a, T> {
             Err(e) => println!("[dap] DPIDR read err: {:?}", e),
         }
 
-        match self.transport.write_dp(DP_CTRL_STAT, CDBGPWRUPREQ | CSYSPWRUPREQ) {
+        match self
+            .transport
+            .write_dp(DP_CTRL_STAT, CDBGPWRUPREQ | CSYSPWRUPREQ)
+        {
             Ok(()) => println!("[dap] power req written"),
             Err(e) => println!("[dap] power req err: {:?}", e),
         }
@@ -224,14 +231,23 @@ impl<'a, T: Transport> Dap<'a, T> {
         rpos
     }
 
-    fn exec_transfer(&mut self, apndp: bool, rnw: bool, a: u8, wdata: Option<u32>) -> Result<Option<u32>, u8> {
+    fn exec_transfer(
+        &mut self,
+        apndp: bool,
+        rnw: bool,
+        a: u8,
+        wdata: Option<u32>,
+    ) -> Result<Option<u32>, u8> {
         let mut tries = 0u32;
         loop {
             let r = match (apndp, rnw) {
                 (false, true) => self.transport.read_dp(a).map(Some),
                 (false, false) => self.transport.write_dp(a, wdata.unwrap_or(0)).map(|_| None),
                 (true, true) => self.transport.read_ap(0, a).map(Some),
-                (true, false) => self.transport.write_ap(0, a, wdata.unwrap_or(0)).map(|_| None),
+                (true, false) => self
+                    .transport
+                    .write_ap(0, a, wdata.unwrap_or(0))
+                    .map(|_| None),
             };
             let status = match r {
                 Ok(v) => return Ok(v),
@@ -346,7 +362,10 @@ impl<'a, T: Transport> Dap<'a, T> {
             return 1;
         }
         let wait = u32::from_le_bytes([req[6], req[7], req[8], req[9]]);
-        resp[0] = self.transport.swj_pins(req[1], req[2], wait).unwrap_or(0x00);
+        resp[0] = self
+            .transport
+            .swj_pins(req[1], req[2], wait)
+            .unwrap_or(0x00);
         1
     }
 }

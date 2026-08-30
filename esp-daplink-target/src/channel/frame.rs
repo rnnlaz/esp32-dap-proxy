@@ -17,7 +17,12 @@ pub struct Deframer<const N: usize> {
 
 impl<const N: usize> Deframer<N> {
     pub const fn new() -> Self {
-        Self { buf: [0; N], fill: 0, state: RxState::Magic, rejects: 0 }
+        Self {
+            buf: [0; N],
+            fill: 0,
+            state: RxState::Magic,
+            rejects: 0,
+        }
     }
 
     pub fn is_garbage(&self) -> bool {

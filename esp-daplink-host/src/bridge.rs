@@ -2,7 +2,6 @@ use crate::link::{DapLink, LinkError};
 
 pub struct DapBridge {
     link: DapLink,
-    /// 已就绪、待宿主 IN 读取的 DAP 响应（至多一条）
     pending: Option<Vec<u8>>,
 }
 
@@ -14,10 +13,8 @@ impl DapBridge {
         }
     }
 
-    /// EP1 OUT：转发 DAP 命令并等待响应入队。
     pub async fn bulk_out(&mut self, command: &[u8]) -> Result<(), LinkError> {
-        // 丢弃上一周期可能遗留的响应（宿主超时放弃的周期），
-        // 保持命令流与响应流一一对应。
+        // 丢弃上次可能的残留
         if let Some(stale) = self.pending.take() {
             tracing::debug!("丢弃未取走的陈旧响应（{} 字节）", stale.len());
         }

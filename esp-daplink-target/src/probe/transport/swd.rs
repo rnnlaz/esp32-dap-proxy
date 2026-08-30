@@ -12,7 +12,11 @@ pub struct Swd<I: Io> {
 
 impl<I: Io> Swd<I> {
     pub fn new(io: I) -> Self {
-        Self { io, driving: true, last_pins: 0x80 }
+        Self {
+            io,
+            driving: true,
+            last_pins: 0x80,
+        }
     }
 }
 
