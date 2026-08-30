@@ -8,17 +8,17 @@ use tokio::time;
 
 use crate::metrics;
 
-/// 帧载荷上限。target 侧 Deframer 为 1024，这里留出余量做防御。
+/// 帧载荷上限。target 侧 Deframer 为 1024。
 const MAX_FRAME: usize = 4096;
 
-/// 帧魔数（与 target 侧 FRAME_MAGIC 一致）
+/// 帧魔数
 const FRAME_MAGIC: u8 = 0xDA;
 
 #[derive(Debug)]
 pub enum LinkError {
     /// 连接/读写 IO 错误
     Io(std::io::Error),
-    /// 连接已断开（对端关闭）
+    /// 连接已断开
     Disconnected,
     /// 超时
     Timeout,

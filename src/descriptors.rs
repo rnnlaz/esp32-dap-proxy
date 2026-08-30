@@ -2,7 +2,7 @@ ub const USBIP_PATH: &str = "/sys/v_cmsisdap";
 /// 总线 ID（USB/IP attach 时的 busid）
 pub const USBIP_BUSID: &str = "1-1";
 
-pub const VID: u16 = 0xC251; // Keil Software（CMSIS-DAP 生态惯用）
+pub const VID: u16 = 0xC251;
 pub const PID: u16 = 0xF001; // CMSIS-DAP
 pub const BCD_DEVICE: u16 = 0x0200;
 
