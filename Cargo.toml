@@ -24,7 +24,6 @@ static_cell = "2.1.1"
 embassy-time = "0.5.1"
 embassy-futures = "0.1.2"
 embedded-io-async = "0.7.0"
-reqwless = "0.13.0"
 
 # For fine tuning these settings, please refer to https://doc.rust-lang.org/cargo/reference/profiles.html
 [profile.dev]
